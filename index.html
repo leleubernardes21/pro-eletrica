@@ -8764,6 +8764,7 @@
                         const key = `${Math.min(A.id, B.id)}_${Math.max(A.id, B.id)}`;
                         const transExistente = state.transicoes.find(t => t.key === key);
                         const tipo = transExistente ? transExistente.tipo : 'porta';
+                        const larguraTrans = transExistente ? transExistente.largura : undefined;
 
                         novasTransicoes.push({
                             key,
@@ -8773,6 +8774,7 @@
                             nomeA: A.nome,
                             nomeB: B.nome,
                             tipo,
+                            largura: larguraTrans,
                             x: posX,
                             y: posY,
                             orientacao
@@ -15103,6 +15105,7 @@
                 ctx.save();
                 ctx.translate(tx, ty);
                 if (t.orientacao === 'V') ctx.rotate(Math.PI / 2);
+                const transSel = (state.transicaoSelecionadaKey === t.key);
 
                 // Recorte do vão na parede
                 ctx.fillStyle = corPiso;
@@ -15154,6 +15157,13 @@
                         ctx.font = 'bold 8px sans-serif';
                         ctx.fillText(t.tipo === 'corredor' ? 'CORREDOR' : 'VÃO LIVRE', -meio, meiaParede + 10);
                     }
+                }
+                if (transSel) {
+                    ctx.strokeStyle = '#fde047';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([4, 3]);
+                    ctx.strokeRect(-meio - 4, -meiaParede - 4, meio * 2 + 8, meiaParede * 2 + 8);
+                    ctx.setLineDash([]);
                 }
                 ctx.restore();
             });
@@ -25674,6 +25684,116 @@
         const mapa = { ArrowLeft: 'esq', ArrowRight: 'dir', ArrowUp: 'cima', ArrowDown: 'baixo' };
         if (mapa[ev.key] && (state.abaAtiva === 'planta' || state.abaAtiva === 'instalacoes')) { ev.preventDefault(); acaoComodo(mapa[ev.key]); }
     });
+})();
+</script>
+
+<!-- =====================================================================
+     BARRA DA JANELA / PORTA SELECIONADA (Leo): largura, tipo e excluir
+     ===================================================================== -->
+<div id="barraAberturaV2" class="no-print" style="position:fixed;left:12px;right:12px;bottom:136px;z-index:46;display:none;justify-content:center;pointer-events:none">
+  <div style="pointer-events:auto;display:flex;flex-wrap:wrap;gap:5px;align-items:center;background:rgba(15,23,42,.95);border:1px solid #ca8a04;border-radius:14px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.5)">
+    <span id="lblBarraAbertura" style="color:#fde047;font-size:11px;font-weight:800;padding:0 6px"></span>
+    <button onclick="acaoAbertura('largura')" style="padding:7px 9px;border-radius:9px;background:#1e293b;color:#e2e8f0;font-size:12px;font-weight:700;border:1px solid #334155">↔ Largura</button>
+    <button onclick="acaoAbertura('tipo')" id="btnTipoAbertura" style="padding:7px 9px;border-radius:9px;background:#1e293b;color:#e2e8f0;font-size:12px;font-weight:700;border:1px solid #334155">⇄ Tipo</button>
+    <button onclick="acaoAbertura('excluir')" style="padding:7px 9px;border-radius:9px;background:#450a0a;color:#fca5a5;font-size:12px;font-weight:700;border:1px solid #7f1d1d">🗑 Excluir</button>
+    <button onclick="acaoAbertura('fechar')" style="padding:7px 9px;border-radius:9px;background:transparent;color:#94a3b8;font-size:12px;border:1px solid #334155">✕</button>
+  </div>
+</div>
+<script>
+(function () {
+    'use strict';
+    function abSel() { return (state.aberturas || []).find(a => a.id === state.aberturaSelecionadaId); }
+    function trSel() { return (state.transicoes || []).find(t => t.key === state.transicaoSelecionadaKey); }
+    function concluir() { detectarProximidadeComodos(); atualizarTudo(); reconstruirCena3D(); salvarProjetoSilencioso(); }
+    const NOMES = { porta: 'Porta', corredor: 'Corredor', vao_livre: 'Vão livre', janela: 'Janela' };
+
+    window.acaoAbertura = function (acao) {
+        const ab = abSel(), tr = trSel();
+        if (!ab && !tr) return;
+        if (acao === 'fechar') { state.aberturaSelecionadaId = null; state.transicaoSelecionadaKey = null; desenharCAD(); desenharInstalacoes(); return; }
+        if (acao === 'excluir') {
+            if (ab) {
+                state.aberturas = state.aberturas.filter(a => a.id !== ab.id);
+                state.aberturaSelecionadaId = null;
+                mostrarNotificacaoToast(NOMES[ab.tipo] + ' excluída. (↶ desfaz)', 'sucesso');
+            } else {
+                tr.tipo = 'parede';   // porta interna vira parede fechada
+                state.transicaoSelecionadaKey = null;
+                mostrarNotificacaoToast(`Passagem entre ${tr.nomeA} e ${tr.nomeB} fechada com parede. (↶ desfaz)`, 'sucesso');
+            }
+            return concluir();
+        }
+        if (acao === 'largura') {
+            const atual = ab ? (ab.largura || 1.2) : (tr.largura || (tr.tipo === 'porta' ? 0.8 : 1.0));
+            const r = prompt('Largura em metros (ex: 0.80):', atual.toFixed(2));
+            if (r === null) return;
+            const v = parseFloat(String(r).replace(',', '.'));
+            if (isNaN(v) || v <= 0) return;
+            if (ab) ab.largura = Math.max(0.4, Math.min(6, v)); else tr.largura = Math.max(0.4, Math.min(4, v));
+            return concluir();
+        }
+        if (acao === 'tipo') {
+            if (ab) { ab.tipo = ab.tipo === 'janela' ? 'porta' : 'janela'; if (ab.tipo === 'porta' && ab.largura > 1.2) ab.largura = 0.8; }
+            else { const ordem = ['porta', 'corredor', 'vao_livre']; tr.tipo = ordem[(ordem.indexOf(tr.tipo) + 1) % ordem.length]; }
+            return concluir();
+        }
+    };
+
+    function atualizarBarra() {
+        const bar = document.getElementById('barraAberturaV2');
+        if (!bar) return;
+        const ab = abSel(), tr = trSel();
+        const aba = state.abaAtiva || 'planta';
+        const mostrar = !!(ab || tr) && (aba === 'planta' || aba === 'instalacoes');
+        bar.style.display = mostrar ? 'flex' : 'none';
+        if (!mostrar) return;
+        if (ab) document.getElementById('lblBarraAbertura').textContent = `${NOMES[ab.tipo]} ${(ab.largura || 1.2).toFixed(2)} m`;
+        else document.getElementById('lblBarraAbertura').textContent = `${NOMES[tr.tipo] || 'Porta'} ${tr.nomeA} ↔ ${tr.nomeB}`;
+        // com uma abertura selecionada, a barra do cômodo some para não sobrepor
+        const bc = document.getElementById('barraComodoV2'); if (bc) bc.style.display = 'none';
+    }
+    const origDesenhar = window.desenharCAD;
+    window.desenharCAD = function () { const r = origDesenhar.apply(this, arguments); atualizarBarra(); return r; };
+
+    // Clique numa porta interna: seleciona (em vez de abrir a janela de tipo direto)
+    function coord(cv, e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height }; }
+    function aoPressionar(e) {
+        if (state.modoInserirAbertura) return;
+        const cv = e.currentTarget, p = coord(cv, e);
+        const esc = state.escala || 35;
+        const alvo = (state.transicoes || []).filter(t => t.pavimentoId === state.pavimentoAtivoId && t.tipo !== 'parede').find(t => {
+            const meio = ((t.largura || (t.tipo === 'porta' ? 0.8 : 1.0)) * esc) / 2;
+            const ao = t.orientacao === 'V' ? Math.abs(p.y - t.y) : Math.abs(p.x - t.x);
+            const at = t.orientacao === 'V' ? Math.abs(p.x - t.x) : Math.abs(p.y - t.y);
+            return ao <= meio + 4 && at <= 14;
+        });
+        if (alvo) {
+            state.transicaoSelecionadaKey = alvo.key;
+            state.aberturaSelecionadaId = null;
+            state.comodoEmEdicaoId = null;
+            desenharCAD(); desenharInstalacoes();
+            e.stopImmediatePropagation(); e.preventDefault();
+            return;
+        }
+        if (state.transicaoSelecionadaKey) { state.transicaoSelecionadaKey = null; }
+        // ao selecionar uma janela/porta solta, tira a seleção do cômodo
+        setTimeout(() => { if (state.aberturaSelecionadaId && state.comodoEmEdicaoId) { state.comodoEmEdicaoId = null; desenharCAD(); desenharInstalacoes(); } else { desenharCAD(); } }, 0);
+    }
+    ['cadCanvas', 'instalacoesCanvas'].forEach(id => {
+        const cv = document.getElementById(id);
+        if (cv) cv.addEventListener('mousedown', aoPressionar, true);
+    });
+
+    // Tecla Delete / Backspace no computador
+    document.addEventListener('keydown', (ev) => {
+        const tag = (ev.target.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+        if ((ev.key === 'Delete' || ev.key === 'Backspace') && (abSel() || trSel())) {
+            ev.preventDefault(); ev.stopImmediatePropagation();
+            acaoAbertura('excluir');
+        }
+        if (ev.key === 'Escape' && (abSel() || trSel())) acaoAbertura('fechar');
+    }, true);
 })();
 </script>
 
