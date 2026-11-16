@@ -8766,6 +8766,8 @@
                         const tipo = transExistente ? transExistente.tipo : 'porta';
                         const larguraTrans = transExistente ? transExistente.largura : undefined;
                         const deslocTrans = transExistente ? (transExistente.deslocamento || 0) : 0;
+                        const dobradicaTrans = transExistente ? transExistente.dobradica : undefined;
+                        const sentidoTrans = transExistente ? transExistente.sentido : undefined;
                         if (deslocTrans) {
                             const meioPorta = ((larguraTrans || (tipo === 'porta' ? 0.8 : 1.0)) * state.escala) / 2;
                             const sobrepos = orientacao === 'V'
@@ -8786,6 +8788,8 @@
                             tipo,
                             largura: larguraTrans,
                             deslocamento: deslocTrans,
+                            dobradica: dobradicaTrans,
+                            sentido: sentidoTrans,
                             x: posX,
                             y: posY,
                             orientacao
@@ -15071,23 +15075,15 @@
                     ctx.stroke();
                 } else {
                     // Porta externa: folha abrindo para dentro do cômodo
-                    const dir = (g.vertical ? -g.dentro : g.dentro); // sentido "para dentro" no eixo local
-                    const folha = g.meio * 2;
+                    let dir = (g.vertical ? -g.dentro : g.dentro); // sentido "para dentro" no eixo local
+                    if (ab.abreFora) dir = -dir;
                     ctx.strokeStyle = sel ? '#fde047' : '#f59e0b';
                     ctx.lineWidth = 2;
                     ctx.beginPath();
                     ctx.moveTo(-g.meio, -mp); ctx.lineTo(-g.meio, mp);
                     ctx.moveTo(g.meio, -mp); ctx.lineTo(g.meio, mp);
-                    ctx.moveTo(-g.meio, dir * mp); ctx.lineTo(-g.meio, dir * (mp + folha));
                     ctx.stroke();
-                    ctx.strokeStyle = sel ? '#fde047' : '#fbbf24';
-                    ctx.lineWidth = 1.1;
-                    ctx.setLineDash([3, 3]);
-                    ctx.beginPath();
-                    if (dir > 0) ctx.arc(-g.meio, mp, folha, 0, Math.PI / 2);
-                    else ctx.arc(-g.meio, -mp, folha, -Math.PI / 2, 0);
-                    ctx.stroke();
-                    ctx.setLineDash([]);
+                    desenharFolhaPorta(ctx, g.meio, mp, ab.dobradica || 'esq', dir, sel ? '#fde047' : '#f59e0b', sel ? '#fde047' : '#fbbf24');
                 }
                 if (sel) {
                     ctx.fillStyle = '#fde047';
@@ -15097,6 +15093,30 @@
                 }
                 ctx.restore();
             });
+        }
+
+        // Folha e arco de porta. dobradica: 'esq' | 'dir'; sentido: -1 ou 1 (lado para onde abre)
+        function desenharFolhaPorta(ctx, meio, meiaParede, dobradica, sentido, corFolha, corArco) {
+            const hx = dobradica === 'dir' ? meio : -meio;
+            const hy = sentido * meiaParede;
+            const folha = meio * 2;
+            ctx.strokeStyle = corFolha;
+            ctx.lineWidth = 2.2;
+            ctx.beginPath();
+            ctx.moveTo(hx, hy);
+            ctx.lineTo(hx, hy + sentido * folha);
+            ctx.stroke();
+            const angFolha = sentido < 0 ? -Math.PI / 2 : Math.PI / 2;
+            const angBatente = dobradica === 'dir' ? Math.PI : 0;
+            let a1 = Math.min(angFolha, angBatente), a2 = Math.max(angFolha, angBatente);
+            if (dobradica === 'dir' && sentido < 0) { a1 = Math.PI; a2 = Math.PI * 1.5; }
+            ctx.strokeStyle = corArco;
+            ctx.lineWidth = 1.1;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.arc(hx, hy, folha, a1, a2);
+            ctx.stroke();
+            ctx.setLineDash([]);
         }
 
         function desenharTransicoes(ctx) {
@@ -15130,20 +15150,8 @@
                     ctx.moveTo(-meio, -meiaParede); ctx.lineTo(-meio, meiaParede);
                     ctx.moveTo(meio, -meiaParede); ctx.lineTo(meio, meiaParede);
                     ctx.stroke();
-                    // Folha aberta a 90° e arco de giro (NBR 6492)
-                    const folha = meio * 2;
-                    ctx.lineWidth = 2.2;
-                    ctx.beginPath();
-                    ctx.moveTo(-meio, -meiaParede);
-                    ctx.lineTo(-meio, -meiaParede - folha);
-                    ctx.stroke();
-                    ctx.strokeStyle = '#fbbf24';
-                    ctx.lineWidth = 1.1;
-                    ctx.setLineDash([3, 3]);
-                    ctx.beginPath();
-                    ctx.arc(-meio, -meiaParede, folha, -Math.PI / 2, 0);
-                    ctx.stroke();
-                    ctx.setLineDash([]);
+                    // Folha aberta a 90° e arco de giro (NBR 6492), com dobradiça e sentido editáveis
+                    desenharFolhaPorta(ctx, meio, meiaParede, t.dobradica || 'esq', t.sentido || -1, '#f59e0b', '#fbbf24');
                     if (state.exibirRotulosTransicoesTexto) {
                         ctx.fillStyle = '#fbbf24';
                         ctx.font = 'bold 8px sans-serif';
@@ -25531,6 +25539,12 @@
     }
 
     function editarAbertura(ab) {
+        if (typeof window.abrirEditorPropriedades === 'function') {
+            state.aberturaSelecionadaId = ab.id; state.transicaoSelecionadaKey = null; state.comodoEmEdicaoId = null;
+            redesenhar();
+            window.abrirEditorPropriedades();
+            return;
+        }
         const nome = ab.tipo === 'janela' ? 'janela' : 'porta';
         const r = prompt(`Largura da ${nome} em metros (ex: 1.20).\nDigite 0 para remover.`, (ab.largura || 1.2).toFixed(2));
         if (r === null) return;
@@ -25710,8 +25724,7 @@
 <div id="barraAberturaV2" class="no-print" style="position:fixed;left:12px;right:12px;bottom:136px;z-index:46;display:none;justify-content:center;pointer-events:none">
   <div style="pointer-events:auto;display:flex;flex-wrap:wrap;gap:5px;align-items:center;background:rgba(15,23,42,.95);border:1px solid #ca8a04;border-radius:14px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.5)">
     <span id="lblBarraAbertura" style="color:#fde047;font-size:11px;font-weight:800;padding:0 6px"></span>
-    <button onclick="acaoAbertura('largura')" style="padding:7px 9px;border-radius:9px;background:#1e293b;color:#e2e8f0;font-size:12px;font-weight:700;border:1px solid #334155">↔ Largura</button>
-    <button onclick="acaoAbertura('tipo')" id="btnTipoAbertura" style="padding:7px 9px;border-radius:9px;background:#1e293b;color:#e2e8f0;font-size:12px;font-weight:700;border:1px solid #334155">⇄ Tipo</button>
+    <button onclick="abrirEditorPropriedades()" style="padding:7px 12px;border-radius:9px;background:#ca8a04;color:#0f172a;font-size:12px;font-weight:800;border:1px solid #fbbf24">✏️ Editar</button>
     <button onclick="acaoAbertura('excluir')" style="padding:7px 9px;border-radius:9px;background:#450a0a;color:#fca5a5;font-size:12px;font-weight:700;border:1px solid #7f1d1d">🗑 Excluir</button>
     <button onclick="acaoAbertura('fechar')" style="padding:7px 9px;border-radius:9px;background:transparent;color:#94a3b8;font-size:12px;border:1px solid #334155">✕</button>
   </div>
@@ -26068,8 +26081,7 @@
         if (acao === 'fechar') { state.selecaoExtra = null; desenharCAD(); desenharInstalacoes(); return; }
         if (acao === 'editar') {
             if (o.tipo === 'ponto') { const pt = state.pontosEletricos.find(p => String(p.id) === String(o.id)); if (pt) abrirModalPontoEdicao(pt); }
-            else if (o.tipo === 'texto') { const t = state.linhasMaoLivre[o.idx]; const r = prompt('Texto:', t.texto); if (r !== null && r.trim()) { t.texto = r.trim(); concluir(); } }
-            else if (o.tipo === 'escada') { const es = state.escadas.find(x => x.id === o.id); if (es) { es.orientacao = es.orientacao === 'V' ? 'H' : 'V'; mostrarNotificacaoToast('Escada girada 90°', 'sucesso'); concluir(); } }
+            else abrirEditorPropriedades();
             return;
         }
         if (acao === 'excluir') {
@@ -26122,7 +26134,7 @@
         if (o.tipo === 'ponto') { const pt = state.pontosEletricos.find(p => String(p.id) === String(o.id)); if (pt) nome = `🔌 ${pt.tipo} ${pt.nome || ''}`; }
         document.getElementById('lblBarraSelecao').textContent = nome;
         const ed = document.getElementById('btnSelEditar');
-        const rotulo = { ponto: '✏️ Editar', texto: '✏️ Editar', escada: '⟳ Girar' }[o.tipo];
+        const rotulo = { ponto: '✏️ Editar', texto: '✏️ Editar', escada: '✏️ Editar', prumada: '✏️ Editar' }[o.tipo];
         ed.style.display = rotulo ? '' : 'none';
         if (rotulo) ed.textContent = rotulo;
         ['barraComodoV2', 'barraAberturaV2'].forEach(id => { const b = document.getElementById(id); if (b) b.style.display = 'none'; });
@@ -26146,6 +26158,196 @@
         if (ev.key === 'Delete' || ev.key === 'Backspace') { ev.preventDefault(); ev.stopImmediatePropagation(); acaoSelecao('excluir'); }
         else if (ev.key === 'Escape') acaoSelecao('fechar');
     }, true);
+})();
+</script>
+
+<!-- =====================================================================
+     EDITOR DE PROPRIEDADES (Leo): clique/duplo clique em qualquer item e
+     edite tudo num painel: porta, janela, porta interna, escada, texto,
+     prumada (ponto elétrico e cômodo abrem o formulário completo do app)
+     ===================================================================== -->
+<div id="editorPropV2" class="no-print" style="position:fixed;inset:0;z-index:60;display:none;align-items:center;justify-content:center;background:rgba(2,6,23,.6);padding:12px">
+  <div style="width:100%;max-width:380px;background:#0f172a;border:1px solid #475569;border-radius:16px;box-shadow:0 20px 50px rgba(0,0,0,.6);overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid #1e293b">
+      <b id="editorPropTitulo" style="color:#fde68a;font-size:14px">Editar</b>
+      <button onclick="fecharEditorPropriedades()" style="color:#94a3b8;font-size:18px;background:none;border:none;cursor:pointer">✕</button>
+    </div>
+    <div id="editorPropCampos" style="padding:12px 14px;display:grid;gap:10px;max-height:62vh;overflow-y:auto"></div>
+    <div style="display:flex;gap:8px;padding:12px 14px;border-top:1px solid #1e293b">
+      <button onclick="excluirPeloEditor()" style="padding:9px 12px;border-radius:10px;background:#450a0a;color:#fca5a5;font-size:13px;font-weight:700;border:1px solid #7f1d1d">🗑 Excluir</button>
+      <div style="flex:1"></div>
+      <button onclick="fecharEditorPropriedades()" style="padding:9px 12px;border-radius:10px;background:#1e293b;color:#cbd5e1;font-size:13px;border:1px solid #334155">Cancelar</button>
+      <button onclick="salvarEditorPropriedades()" style="padding:9px 14px;border-radius:10px;background:#f59e0b;color:#0f172a;font-size:13px;font-weight:800;border:none">Salvar</button>
+    </div>
+  </div>
+</div>
+<style>
+  #editorPropCampos label { display:block; font-size:11px; font-weight:700; color:#94a3b8; margin-bottom:4px; text-transform:uppercase; letter-spacing:.02em }
+  #editorPropCampos input, #editorPropCampos select { width:100%; background:#1e293b; border:1px solid #334155; color:#f1f5f9; border-radius:10px; padding:9px 10px; font-size:14px }
+  #editorPropCampos .ep-seg { display:flex; gap:6px }
+  #editorPropCampos .ep-seg button { flex:1; padding:9px 6px; border-radius:10px; background:#1e293b; color:#cbd5e1; border:1px solid #334155; font-size:13px; font-weight:700; cursor:pointer }
+  #editorPropCampos .ep-seg button.on { background:#f59e0b; color:#0f172a; border-color:#fbbf24 }
+  #editorPropCampos .ep-dica { font-size:11px; color:#64748b }
+</style>
+<script>
+(function () {
+    'use strict';
+    let alvo = null;   // { tipo, ref }
+    const el = id => document.getElementById(id);
+    const num = v => { const n = parseFloat(String(v).replace(',', '.')); return isNaN(n) ? null : n; };
+
+    function itemSelecionado() {
+        const ab = (state.aberturas || []).find(a => a.id === state.aberturaSelecionadaId);
+        if (ab) return { tipo: 'abertura', ref: ab };
+        const tr = (state.transicoes || []).find(t => t.key === state.transicaoSelecionadaKey);
+        if (tr) return { tipo: 'transicao', ref: tr };
+        const o = state.selecaoExtra;
+        if (o) {
+            if (o.tipo === 'escada') return { tipo: 'escada', ref: state.escadas.find(x => x.id === o.id) };
+            if (o.tipo === 'texto') return { tipo: 'texto', ref: state.linhasMaoLivre[o.idx], idx: o.idx };
+            if (o.tipo === 'ponto') return { tipo: 'ponto', ref: state.pontosEletricos.find(p => String(p.id) === String(o.id)) };
+            if (o.tipo === 'prumada') return { tipo: 'prumada', ref: state.prumadaPos };
+            if (o.tipo === 'linha') return { tipo: 'linha', ref: state.linhasMaoLivre[o.idx], idx: o.idx };
+        }
+        const c = state.comodos.find(c => String(c.id) === String(state.comodoEmEdicaoId));
+        if (c) return { tipo: 'comodo', ref: c };
+        return null;
+    }
+
+    function seg(id, opcoes, valor) {
+        return `<div class="ep-seg" data-seg="${id}">` + opcoes.map(([v, t]) => `<button type="button" data-v="${v}" class="${String(v) === String(valor) ? 'on' : ''}">${t}</button>`).join('') + `</div>`;
+    }
+    function lerSeg(id) { const b = document.querySelector(`#editorPropCampos [data-seg="${id}"] button.on`); return b ? b.dataset.v : null; }
+    document.addEventListener('click', ev => {
+        const b = ev.target.closest && ev.target.closest('#editorPropCampos .ep-seg button');
+        if (!b) return;
+        b.parentElement.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b));
+        if (b.parentElement.dataset.seg === 'tipoAb') montar();   // muda os campos ao trocar janela/porta
+    });
+
+    function montar() {
+        const a = alvo, r = a.ref;
+        let titulo = 'Editar', h = '';
+        if (a.tipo === 'abertura') {
+            const tipo = lerSeg('tipoAb') || r.tipo;
+            titulo = tipo === 'janela' ? '🪟 Janela' : '🚪 Porta';
+            h += `<div><label>Tipo</label>${seg('tipoAb', [['janela', '🪟 Janela'], ['porta', '🚪 Porta']], tipo)}</div>`;
+            h += `<div><label>Largura (m)</label><input id="epLargura" type="number" step="0.05" value="${(r.largura || (tipo === 'janela' ? 1.2 : 0.8)).toFixed(2)}"></div>`;
+            if (tipo === 'janela') {
+                h += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div><label>Altura (m)</label><input id="epAltura" type="number" step="0.05" value="${(r.altura || 1.2).toFixed(2)}"></div><div><label>Peitoril (m)</label><input id="epPeitoril" type="number" step="0.05" value="${(r.peitoril ?? 1.0).toFixed(2)}"></div></div>`;
+            } else {
+                const vertAb = (r.lado === 'left' || r.lado === 'right');
+                h += `<div><label>Dobradiça</label>${seg('dobr', vertAb ? [['esq', '▲ Em cima'], ['dir', '▼ Embaixo']] : [['esq', '◧ Esquerda'], ['dir', 'Direita ◨']], r.dobradica || 'esq')}</div>`;
+                h += `<div><label>Abre para</label>${seg('abre', [['dentro', '↘ Dentro do cômodo'], ['fora', '↖ Fora']], r.abreFora ? 'fora' : 'dentro')}</div>`;
+            }
+            h += `<div><label>Posição na parede (%)</label><input id="epPos" type="range" min="0" max="100" value="${Math.round((r.t ?? .5) * 100)}"><div class="ep-dica">Arraste para deslizar ao longo da parede. Também dá para arrastar direto na planta.</div></div>`;
+        } else if (a.tipo === 'transicao') {
+            titulo = `🚪 ${r.nomeA} ↔ ${r.nomeB}`;
+            h += `<div><label>Tipo da passagem</label>${seg('tipoTr', [['porta', 'Porta'], ['corredor', 'Corredor'], ['vao_livre', 'Vão livre'], ['parede', 'Parede']], r.tipo)}</div>`;
+            h += `<div><label>Largura (m)</label><input id="epLargura" type="number" step="0.05" value="${(r.largura || (r.tipo === 'porta' ? 0.8 : 1.0)).toFixed(2)}"></div>`;
+            const vertTr = r.orientacao === 'V';
+            h += `<div><label>Dobradiça</label>${seg('dobr', vertTr ? [['esq', '▲ Em cima'], ['dir', '▼ Embaixo']] : [['esq', '◧ Esquerda'], ['dir', 'Direita ◨']], r.dobradica || 'esq')}</div>`;
+            h += `<div><label>Abre para</label>${seg('sent', vertTr ? [['1', '← Lado esquerdo'], ['-1', 'Lado direito →']] : [['-1', '↑ Lado de cima'], ['1', '↓ Lado de baixo']], String(r.sentido || -1))}</div>`;
+            h += `<div><label>Deslocamento do centro (m)</label><input id="epDesl" type="number" step="0.05" value="${(r.deslocamento || 0).toFixed(2)}"><div class="ep-dica">0 = no meio da parede. Negativo/positivo move para um lado ou outro.</div></div>`;
+        } else if (a.tipo === 'escada') {
+            titulo = '🪜 Escada';
+            h += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div><label>Largura (m)</label><input id="epLargura" type="number" step="0.05" value="${(r.largura || 0.95).toFixed(2)}"></div><div><label>Comprimento (m)</label><input id="epComp" type="number" step="0.05" value="${(r.comprimento || 3).toFixed(2)}"></div></div>`;
+            h += `<div><label>Número de degraus</label><input id="epDeg" type="number" step="1" value="${r.numDegraus || 16}"></div>`;
+            h += `<div><label>Orientação</label>${seg('ori', [['H', '↔ Horizontal'], ['V', '↕ Vertical']], r.orientacao || 'H')}</div>`;
+        } else if (a.tipo === 'texto') {
+            titulo = '🔤 Texto';
+            h += `<div><label>Texto</label><input id="epTexto" type="text" value="${String(r.texto).replace(/"/g, '&quot;')}"></div>`;
+            h += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><div><label>Tamanho</label><input id="epTam" type="number" step="1" value="${r.tamanho || 14}"></div><div><label>Cor</label><input id="epCor" type="color" value="${r.cor || '#38bdf8'}" style="height:42px;padding:3px"></div></div>`;
+        } else if (a.tipo === 'linha') {
+            titulo = '✎ Linha à mão livre';
+            h += `<div class="ep-dica">Arraste a linha na planta para mover. Use Excluir para apagar.</div>`;
+        } else if (a.tipo === 'prumada') {
+            titulo = '▲ Prumada';
+            h += `<div class="ep-dica">Arraste a prumada na planta para mudar de lugar. Excluir esconde a prumada (dá para desfazer).</div>`;
+        }
+        el('editorPropTitulo').textContent = titulo;
+        el('editorPropCampos').innerHTML = h;
+    }
+
+    window.abrirEditorPropriedades = function () {
+        const a = itemSelecionado();
+        if (!a || !a.ref) { mostrarNotificacaoToast('Toque primeiro em um item para selecionar.', 'aviso'); return; }
+        if (a.tipo === 'ponto') { abrirModalPontoEdicao(a.ref); return; }
+        if (a.tipo === 'comodo') { iniciarEdicaoComodo(a.ref.id); return; }
+        alvo = a;
+        montar();
+        el('editorPropV2').style.display = 'flex';
+    };
+    window.fecharEditorPropriedades = function () { el('editorPropV2').style.display = 'none'; alvo = null; };
+
+    window.salvarEditorPropriedades = function () {
+        if (!alvo) return;
+        const r = alvo.ref;
+        if (alvo.tipo === 'abertura') {
+            r.tipo = lerSeg('tipoAb') || r.tipo;
+            const l = num(el('epLargura').value); if (l) r.largura = Math.max(0.4, Math.min(6, l));
+            if (r.tipo === 'janela') { const al = num(el('epAltura').value), pe = num(el('epPeitoril').value); if (al) r.altura = al; if (pe !== null) r.peitoril = pe; }
+            else { r.dobradica = lerSeg('dobr') || 'esq'; r.abreFora = lerSeg('abre') === 'fora'; }
+            r.t = Math.max(0, Math.min(1, (num(el('epPos').value) ?? 50) / 100));
+        } else if (alvo.tipo === 'transicao') {
+            r.tipo = lerSeg('tipoTr') || r.tipo;
+            const l = num(el('epLargura').value); if (l) r.largura = Math.max(0.4, Math.min(4, l));
+            r.dobradica = lerSeg('dobr') || 'esq';
+            r.sentido = parseInt(lerSeg('sent') || '-1', 10);
+            const d = num(el('epDesl').value); r.deslocamento = d || 0;
+            if (r.tipo === 'parede') state.transicaoSelecionadaKey = null;
+        } else if (alvo.tipo === 'escada') {
+            const l = num(el('epLargura').value), c = num(el('epComp').value), n = num(el('epDeg').value);
+            if (l) r.largura = l; if (c) r.comprimento = c; if (n) r.numDegraus = Math.max(2, Math.round(n));
+            r.orientacao = lerSeg('ori') || r.orientacao;
+        } else if (alvo.tipo === 'texto') {
+            const t = el('epTexto').value.trim(); if (t) r.texto = t;
+            const tam = num(el('epTam').value); if (tam) r.tamanho = Math.max(6, Math.min(60, tam));
+            r.cor = el('epCor').value;
+        }
+        fecharEditorPropriedades();
+        detectarProximidadeComodos();
+        atualizarTudo(); reconstruirCena3D(); salvarProjetoSilencioso();
+        mostrarNotificacaoToast('Alterações salvas. (↶ desfaz)', 'sucesso');
+    };
+
+    window.excluirPeloEditor = function () {
+        const a = alvo;
+        fecharEditorPropriedades();
+        if (!a) return;
+        if (a.tipo === 'abertura' || a.tipo === 'transicao') acaoAbertura('excluir');
+        else acaoSelecao('excluir');
+    };
+
+    // Duplo clique / duplo toque em qualquer item abre o editor
+    function itemEditavel() {
+        const a = itemSelecionado();
+        return (a && a.tipo !== 'comodo' && a.tipo !== 'ponto') ? a : null;
+    }
+    function aoDuplo(e) {
+        if (!itemEditavel()) return;            // cômodo e ponto: o app já abre o formulário completo
+        e.stopImmediatePropagation(); e.preventDefault();
+        if (el('editorPropV2').style.display !== 'flex') abrirEditorPropriedades();
+    }
+    let ultimo = 0, ultimoXY = null;
+    function aoToque(e) {
+        if (e.touches.length !== 1) return;
+        const t = e.touches[0], agora = Date.now();
+        const perto = ultimoXY && Math.hypot(t.clientX - ultimoXY.x, t.clientY - ultimoXY.y) < 30;
+        if (agora - ultimo < 330 && perto && itemEditavel()) {
+            e.stopImmediatePropagation(); e.preventDefault();
+            ultimo = 0;
+            abrirEditorPropriedades();
+            return;
+        }
+        ultimo = agora; ultimoXY = { x: t.clientX, y: t.clientY };
+    }
+    ['cadCanvas', 'instalacoesCanvas'].forEach(id => {
+        const cv = el(id); if (!cv) return;
+        cv.addEventListener('dblclick', aoDuplo, true);
+        cv.addEventListener('touchstart', aoToque, { capture: true, passive: false });
+    });
+    document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && el('editorPropV2').style.display === 'flex') fecharEditorPropriedades(); if (ev.key === 'Enter' && el('editorPropV2').style.display === 'flex' && ev.target.tagName !== 'BUTTON') { ev.preventDefault(); salvarEditorPropriedades(); } });
 })();
 </script>
 
