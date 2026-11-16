@@ -1,7 +1,7 @@
 // =========================================================================
 // SERVICE WORKER - PRO-ELÉTRICA CAD NBR 5410 (PWA OFFLINE / CACHE)
 // =========================================================================
-const CACHE_NAME = 'pro-eletrica-cad-v2.0';
+const CACHE_NAME = 'pro-eletrica-cad-v2.1';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -48,6 +48,24 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   // Apenas métodos GET
   if (event.request.method !== 'GET') return;
+
+  // Página principal (HTML): rede primeiro, para cada atualização publicada aparecer na hora.
+  // Sem internet, usa a cópia em cache.
+  const ehPagina = event.request.mode === 'navigate' || event.request.url.endsWith('.html') || event.request.url.endsWith('/');
+  if (ehPagina) {
+    event.respondWith(
+      fetch(event.request)
+        .then((resp) => {
+          if (resp && resp.status === 200) {
+            const copia = resp.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copia));
+          }
+          return resp;
+        })
+        .catch(() => caches.match(event.request).then((c) => c || caches.match('./index.html')))
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {

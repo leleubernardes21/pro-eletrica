@@ -24898,5 +24898,166 @@
         </div>
     </div>
 
+<!-- =====================================================================
+     HISTÓRICO v2 (Leo): desfazer / refazer / voltar ao início
+     Registra automaticamente qualquer alteração do projeto (arrastar cômodo,
+     mover ponto, curvar eletroduto, editar por formulário...). Zoom e
+     movimento da tela (pan) não entram no histórico.
+     ===================================================================== -->
+<div id="barraHistoricoV2" class="no-print" style="position:fixed;left:12px;bottom:84px;z-index:45;display:none;gap:6px;align-items:center;background:rgba(15,23,42,.92);border:1px solid #334155;border-radius:14px;padding:5px;box-shadow:0 8px 24px rgba(0,0,0,.45);backdrop-filter:blur(6px)">
+    <button id="btnHistDesfazer" onclick="desfazerAcao()" title="Desfazer (Ctrl+Z)" style="display:flex;align-items:center;gap:5px;padding:7px 10px;border-radius:10px;background:#1e293b;color:#e2e8f0;font-size:12px;font-weight:700;border:1px solid #334155">
+        <i class="fa-solid fa-arrow-rotate-left"></i><span id="lblHistDesfazer">0</span>
+    </button>
+    <button id="btnHistRefazer" onclick="refazerAcao()" title="Refazer (Ctrl+Y)" style="display:flex;align-items:center;gap:5px;padding:7px 10px;border-radius:10px;background:#1e293b;color:#e2e8f0;font-size:12px;font-weight:700;border:1px solid #334155">
+        <i class="fa-solid fa-arrow-rotate-right"></i><span id="lblHistRefazer">0</span>
+    </button>
+    <button id="btnHistInicio" onclick="voltarAoInicioSessao()" title="Voltar ao estado de quando você abriu o app" style="display:flex;align-items:center;gap:5px;padding:7px 10px;border-radius:10px;background:#451a03;color:#fcd34d;font-size:12px;font-weight:700;border:1px solid #92400e">
+        <i class="fa-solid fa-backward-fast"></i><span>Início</span>
+    </button>
+</div>
+<script>
+(function () {
+    'use strict';
+    const LIMITE = 80;
+    let base = null;            // último estado registrado (string JSON)
+    let inicioSessao = null;    // estado ao abrir o app
+    let suspenso = false;       // true enquanto desfaz/refaz restaura um estado
+    let timer = null;
+    let ponteiroAbaixo = false;
+
+    function snap() {
+        const s = exportarSnapshotEstado();
+        delete s.abaAtiva; delete s.ferramentaAtiva; delete s.ferramentaInstalacoes;
+        return JSON.stringify(s);
+    }
+
+    function atualizarBarra() {
+        const u = document.getElementById('lblHistDesfazer');
+        const r = document.getElementById('lblHistRefazer');
+        if (u) u.textContent = _historicoUndo.length;
+        if (r) r.textContent = _historicoRedo.length;
+        const bu = document.getElementById('btnHistDesfazer');
+        const br = document.getElementById('btnHistRefazer');
+        if (bu) bu.style.opacity = _historicoUndo.length ? '1' : '.45';
+        if (br) br.style.opacity = _historicoRedo.length ? '1' : '.45';
+    }
+
+    function registrar() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        if (suspenso) return;
+        let atual;
+        try { atual = snap(); } catch (e) { return; }
+        if (base === null) { base = atual; return; }
+        if (atual !== base) {
+            _historicoUndo.push(base);
+            if (_historicoUndo.length > LIMITE) _historicoUndo.shift();
+            _historicoRedo.length = 0;
+            base = atual;
+            atualizarBarra();
+        }
+    }
+
+    function agendar() {
+        if (suspenso) return;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+            timer = null;
+            if (ponteiroAbaixo) return; // arrasto em andamento: registra ao soltar
+            registrar();
+        }, 250);
+    }
+
+    function rebase() {
+        if (timer) { clearTimeout(timer); timer = null; }
+        try { base = snap(); } catch (e) {}
+    }
+
+    function restaurar(estadoStr) {
+        suspenso = true;
+        try {
+            restaurarSnapshotEstado(JSON.parse(estadoStr));
+            atualizarTudo();
+        } finally {
+            suspenso = false;
+        }
+        rebase();
+        atualizarBarra();
+    }
+
+    // ---- Funções públicas (substituem as antigas) ----
+    window.salvarEstadoParaHistorico = function () { registrar(); };
+
+    window.desfazerAcao = function () {
+        registrar();
+        if (!_historicoUndo.length) { mostrarNotificacaoToast('Nada para desfazer.', 'aviso'); return; }
+        _historicoRedo.push(base);
+        restaurar(_historicoUndo.pop());
+        mostrarNotificacaoToast('Desfeito (' + _historicoUndo.length + ' restantes)', 'sucesso');
+    };
+
+    window.refazerAcao = function () {
+        registrar();
+        if (!_historicoRedo.length) { mostrarNotificacaoToast('Nada para refazer.', 'aviso'); return; }
+        _historicoUndo.push(base);
+        restaurar(_historicoRedo.pop());
+        mostrarNotificacaoToast('Refeito', 'sucesso');
+    };
+
+    window.voltarAoInicioSessao = function () {
+        registrar();
+        if (!inicioSessao || inicioSessao === base) { mostrarNotificacaoToast('Já está no estado inicial.', 'aviso'); return; }
+        if (!confirm('Voltar o projeto para como estava quando você abriu o app?\n\nDá para desfazer isso depois com o botão ↶.')) return;
+        _historicoUndo.push(base);
+        _historicoRedo.length = 0;
+        restaurar(inicioSessao);
+        mostrarNotificacaoToast('Projeto voltou ao estado inicial.', 'sucesso');
+    };
+
+    // ---- Ganchos: toda atualização/salvamento agenda um registro ----
+    const origAtualizarTudo = window.atualizarTudo;
+    window.atualizarTudo = function () { const r = origAtualizarTudo.apply(this, arguments); agendar(); return r; };
+    const origSalvarSil = window.salvarProjetoSilencioso;
+    window.salvarProjetoSilencioso = function () { const r = origSalvarSil.apply(this, arguments); agendar(); return r; };
+
+    // ---- Zoom e pan mexem nas coordenadas, mas não são edições: não entram no histórico ----
+    ['ajustarZoomCad', 'moverProjetoOffset', 'centralizarProjetoNoCanvas'].forEach(nome => {
+        const orig = window[nome];
+        if (typeof orig !== 'function') return;
+        window[nome] = function () {
+            if (timer) registrar();      // grava antes qualquer edição pendente
+            const r = orig.apply(this, arguments);
+            rebase();
+            return r;
+        };
+    });
+
+    // ---- Arrasto: não registra no meio do gesto, só ao soltar ----
+    document.addEventListener('pointerdown', () => { ponteiroAbaixo = true; }, true);
+    const soltar = () => { if (!ponteiroAbaixo) return; ponteiroAbaixo = false; agendar(); };
+    document.addEventListener('pointerup', soltar, true);
+    document.addEventListener('pointercancel', soltar, true);
+    document.addEventListener('touchend', soltar, true);
+
+    // ---- Mostrar a barra só na Planta e na Elétrica ----
+    const origTrocarAba = window.trocarAba;
+    function mostrarBarra(aba) {
+        const b = document.getElementById('barraHistoricoV2');
+        if (b) b.style.display = (aba === 'planta' || aba === 'instalacoes') ? 'flex' : 'none';
+    }
+    window.trocarAba = function (aba) { const r = origTrocarAba.apply(this, arguments); mostrarBarra(state.abaAtiva); return r; };
+
+    // ---- Estado inicial da sessão ----
+    window.addEventListener('load', () => {
+        setTimeout(() => {
+            rebase();
+            inicioSessao = base;
+            _historicoUndo.length = 0; _historicoRedo.length = 0;
+            atualizarBarra();
+            mostrarBarra(state.abaAtiva || 'planta');
+        }, 1500);
+    });
+})();
+</script>
+
 </body>
 </html>
