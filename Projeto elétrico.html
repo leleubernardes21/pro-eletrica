@@ -26754,7 +26754,6 @@
 
         // Barra de vistas e dica
         const cont = document.getElementById('viewport3d') && document.getElementById('viewport3d').parentElement;
-        setTimeout(() => vista3D('iso'), 400);
         if (cont && !document.getElementById('nav3dBarra')) {
             const barra = document.createElement('div');
             barra.id = 'nav3dBarra';
@@ -26800,7 +26799,16 @@
         window.initThreeEngine = function () { const r = origInit.apply(this, arguments); setTimeout(configurar, 0); return r; };
     }
     const origTrocar = window.trocarAba;
-    window.trocarAba = function () { const r = origTrocar.apply(this, arguments); if (state.abaAtiva === 'visualizacao3d') setTimeout(configurar, 300); return r; };
+    let jaEnquadrou = false;
+    window.trocarAba = function () {
+        const r = origTrocar.apply(this, arguments);
+        if (state.abaAtiva === 'visualizacao3d') {
+            setTimeout(configurar, 300);
+            // Na primeira vez que abre o 3D, enquadra a construção
+            if (!jaEnquadrou) { jaEnquadrou = true; setTimeout(() => { configurar(); vista3D('iso'); }, 900); }
+        }
+        return r;
+    };
     // "Resetar câmera" do app passa a enquadrar a construção com transição suave
     const origReset = window.resetarCamera3D;
     window.resetarCamera3D = function () {
