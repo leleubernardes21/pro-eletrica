@@ -10234,7 +10234,7 @@
                 }
 
                 // 1. Arrastar Alimentação Externa (visível no térreo)
-                if (state.pavimentoAtivoId === 'terreo') {
+                if (state.pavimentoAtivoId === 'terreo' && state.alimentacaoExterna && state.alimentacaoExterna.ativa !== false) {
                     const alim = state.alimentacaoExterna;
                     if (mx >= alim.x && mx <= alim.x + alim.w && my >= alim.y && my <= alim.y + alim.h) {
                         state.arrastando = { tipo: 'alimExterna' };
@@ -13742,7 +13742,7 @@
             const alimCy = state.alimentacaoExterna.y + state.alimentacaoExterna.h / 2;
 
             // 3. Alimentador Geral (apenas no térreo)
-            if (state.pavimentoAtivoId === 'terreo') {
+            if (state.pavimentoAtivoId === 'terreo' && state.alimentacaoExterna && state.alimentacaoExterna.ativa !== false) {
                 ctx.strokeStyle = '#10b981';
                 ctx.lineWidth = 3.5;
                 ctx.setLineDash([8, 4]);
@@ -13919,7 +13919,7 @@
             }
 
             // 10. Alimentação Externa (no térreo)
-            if (state.pavimentoAtivoId === 'terreo') {
+            if (state.pavimentoAtivoId === 'terreo' && state.alimentacaoExterna && state.alimentacaoExterna.ativa !== false) {
                 const alim = state.alimentacaoExterna;
                 ctx.fillStyle = '#059669';
                 ctx.fillRect(alim.x, alim.y, alim.w, alim.h);
@@ -13968,7 +13968,7 @@
             const alimCy = state.alimentacaoExterna.y + state.alimentacaoExterna.h / 2;
 
             // 1. Alimentador Geral
-            if (state.pavimentoAtivoId === 'terreo') {
+            if (state.pavimentoAtivoId === 'terreo' && state.alimentacaoExterna && state.alimentacaoExterna.ativa !== false) {
                 cabos.push({
                     id: 'cabo_alim_geral',
                     tipo: 'alimentador',
@@ -14210,7 +14210,7 @@
             const alimCx = state.alimentacaoExterna.x + state.alimentacaoExterna.w / 2;
             const alimCy = state.alimentacaoExterna.y + state.alimentacaoExterna.h / 2;
 
-            if (state.pavimentoAtivoId === 'terreo') {
+            if (state.pavimentoAtivoId === 'terreo' && state.alimentacaoExterna && state.alimentacaoExterna.ativa !== false) {
                 ctx.strokeStyle = '#10b981';
                 ctx.lineWidth = 3.5;
                 ctx.setLineDash([8, 4]);
@@ -14856,7 +14856,7 @@
             ctx.fillText(state.pavimentoAtivoId === 'terreo' ? '▲' : '▼', state.prumadaPos.x - 5, state.prumadaPos.y + 4);
             }
 
-            if (state.pavimentoAtivoId === 'terreo') {
+            if (state.pavimentoAtivoId === 'terreo' && state.alimentacaoExterna && state.alimentacaoExterna.ativa !== false) {
                 const alim = state.alimentacaoExterna;
                 ctx.fillStyle = '#059669';
                 ctx.fillRect(alim.x, alim.y, alim.w, alim.h);
@@ -25915,7 +25915,7 @@
 
     // Ferramentas da aba Planta
     const PLANTA = [
-        { id: 'sel', ic: '↖', nome: 'Selecionar', tecla: 'V', modo: true, ativo: () => state.ferramentaAtiva === 'select' && !state.modoInserirAbertura,
+        { id: 'sel', ic: '↖', nome: 'Selecionar', tecla: 'V', modo: true, ativo: () => state.ferramentaAtiva === 'select' && !state.modoInserirAbertura && !state.modoInserirAlim,
           fazer: () => { state.modoInserirAbertura = null; clicar('btnToolSelect'); } },
         { id: 'draw', ic: '✎', nome: 'Mão livre', tecla: 'L', modo: true, ativo: () => state.ferramentaAtiva === 'draw' && !state.modoInserirAbertura,
           fazer: () => { state.modoInserirAbertura = null; clicar('btnToolDraw'); } },
@@ -25925,6 +25925,16 @@
           fazer: () => state.modoInserirAbertura === 'janela' ? (state.modoInserirAbertura = null) : iniciarInsercaoAbertura('janela') },
         { sep: true },
         { id: 'novo', ic: '＋', nome: 'Cômodo', tecla: 'N', fazer: () => abrirModalNovoComodo() },
+        { id: 'alim', ic: '⚡', nome: 'Alim.', tecla: 'A', modo: true,
+          ativo: () => !!state.modoInserirAlim,
+          liga: () => state.alimentacaoExterna && state.alimentacaoExterna.ativa !== false,
+          fazer: () => {
+              if (state.modoInserirAlim) { state.modoInserirAlim = false; return; }
+              if (state.pavimentoAtivoId !== 'terreo') { mostrarNotificacaoToast('A alimentação externa fica no Térreo. Troque de pavimento.', 'aviso'); return; }
+              state.modoInserirAbertura = null;
+              state.modoInserirAlim = true;
+              mostrarNotificacaoToast(state.alimentacaoExterna.ativa === false ? '⚡ Toque onde fica a entrada de energia' : '⚡ Toque no novo lugar da alimentação externa', 'sucesso');
+          } },
         { id: 'unir', ic: '🧩', nome: 'Unir', fazer: () => autoUnirEAlinharComodos() },
         { sep: true },
         { id: 'cotas', ic: '📏', nome: 'Cotas', tecla: 'C', liga: () => !state.camadas || state.camadas.cotas !== false, fazer: () => toggleCotasExibicao() },
@@ -25948,6 +25958,7 @@
     function listaAtual() { return aba() === 'instalacoes' ? ELETRICA : PLANTA; }
 
     function indicador() {
+        if (state.modoInserirAlim) return '⚡ Alimentação<br>toque no local';
         if (state.modoInserirAbertura) return (state.modoInserirAbertura === 'janela' ? '🪟 Janela' : '🚪 Porta') + '<br>toque na parede';
         const ab = (state.aberturas || []).find(a => a.id === state.aberturaSelecionadaId);
         const tr = (state.transicoes || []).find(t => t.key === state.transicaoSelecionadaKey);
@@ -25996,7 +26007,7 @@
         const tag = (ev.target.tagName || '').toLowerCase();
         if (tag === 'input' || tag === 'textarea' || tag === 'select' || ev.ctrlKey || ev.metaKey || ev.altKey) return;
         if (aba() !== 'planta' && aba() !== 'instalacoes') return;
-        if (ev.key === 'Escape' && state.modoInserirAbertura) { state.modoInserirAbertura = null; render(); return; }
+        if (ev.key === 'Escape' && (state.modoInserirAbertura || state.modoInserirAlim)) { state.modoInserirAbertura = null; state.modoInserirAlim = false; render(); return; }
         const k = ev.key.toUpperCase();
         const f = listaAtual().find(x => x.tecla === k);
         if (f) { ev.preventDefault(); ev.stopImmediatePropagation(); executar(f.id); }
@@ -26056,6 +26067,11 @@
             const pt = (state.pontosEletricos || []).find(pt => pt.pavimentoId === andar && Math.hypot(p.x - pt.x, p.y - pt.y) <= 14);
             if (pt) return { tipo: 'ponto', id: pt.id, deixarOriginal: true };
         }
+        // alimentação externa (só no térreo)
+        const al = state.alimentacaoExterna;
+        if (al && al.ativa !== false && andar === 'terreo' && p.x >= al.x && p.x <= al.x + al.w && p.y >= al.y && p.y <= al.y + al.h) {
+            return { tipo: 'alimentacao', deixarOriginal: !ehInst };   // na Planta o app já arrasta; na Elétrica este módulo arrasta
+        }
         // prumada (o app original já arrasta)
         if (!ehInst && state.prumadaAtiva !== false && state.prumadaPos && Math.hypot(p.x - state.prumadaPos.x, p.y - state.prumadaPos.y) <= 14) return { tipo: 'prumada', deixarOriginal: true };
         // escada
@@ -26074,11 +26090,25 @@
         return null;
     }
 
-    const NOMES = { escada: '🪜 Escada', linha: '✎ Linha à mão livre', texto: '🔤 Texto', ponto: '🔌 Ponto elétrico', waypoint: '⌇ Curva do conduíte', prumada: '▲ Prumada' };
+    const NOMES = { alimentacao: '⚡ Alimentação externa', escada: '🪜 Escada', linha: '✎ Linha à mão livre', texto: '🔤 Texto', ponto: '🔌 Ponto elétrico', waypoint: '⌇ Curva do conduíte', prumada: '▲ Prumada' };
 
     function aoPressionar(e) {
         if (state.modoInserirAbertura) return;
         const cv = e.currentTarget, ehInst = cv.id === 'instalacoesCanvas';
+        // Colocar a alimentação externa onde tocar
+        if (state.modoInserirAlim) {
+            const pp = coord(cv, e);
+            const al = state.alimentacaoExterna;
+            al.ativa = true;
+            al.x = pp.x - al.w / 2; al.y = pp.y - al.h / 2;
+            state.modoInserirAlim = false;
+            limparOutrasSelecoes();
+            state.selecaoExtra = { tipo: 'alimentacao', deixarOriginal: !ehInst };
+            concluir();
+            mostrarNotificacaoToast('⚡ Alimentação externa colocada. Arraste para ajustar.', 'sucesso');
+            e.stopImmediatePropagation(); e.preventDefault();
+            return;
+        }
         if (!ehInst && state.ferramentaAtiva === 'draw') return;   // desenhando à mão livre
         const p = coord(cv, e);
         const obj = acharObjeto(p, ehInst);
@@ -26099,6 +26129,7 @@
         if (!dx && !dy) return;
         const o = arrasto.obj;
         if (o.tipo === 'escada') { const es = state.escadas.find(x => x.id === o.id); if (es) { es.x += dx; es.y += dy; } }
+        else if (o.tipo === 'alimentacao') { state.alimentacaoExterna.x += dx; state.alimentacaoExterna.y += dy; }
         else if (o.tipo === 'texto') { const t = state.linhasMaoLivre[o.idx]; t.x += dx; t.y += dy; }
         else if (o.tipo === 'linha') { state.linhasMaoLivre[o.idx].forEach(pt => { pt.x += dx; pt.y += dy; }); }
         arrasto.moveu = true;
@@ -26127,6 +26158,7 @@
             else if (o.tipo === 'ponto') state.pontosEletricos = state.pontosEletricos.filter(p => String(p.id) !== String(o.id));
             else if (o.tipo === 'waypoint') { const w = state.eletrodutoWaypoints[o.circNum]; if (w) w.splice(o.index, 1); }
             else if (o.tipo === 'prumada') state.prumadaAtiva = false;
+            else if (o.tipo === 'alimentacao') state.alimentacaoExterna.ativa = false;
             mostrarNotificacaoToast((NOMES[o.tipo] || 'Item') + ' excluído. (↶ desfaz)', 'sucesso');
             state.selecaoExtra = null;
             if (o.tipo === 'ponto') state.pontoSelecionadoId = null;
@@ -26151,6 +26183,7 @@
         else if (o.tipo === 'ponto') { const pt = state.pontosEletricos.find(p => String(p.id) === String(o.id)); if (pt) { ctx.beginPath(); ctx.arc(pt.x, pt.y, 16, 0, Math.PI * 2); ctx.stroke(); } }
         else if (o.tipo === 'waypoint') { const w = (state.eletrodutoWaypoints[o.circNum] || [])[o.index]; if (w) { ctx.beginPath(); ctx.arc(w.x, w.y, 14, 0, Math.PI * 2); ctx.stroke(); } }
         else if (o.tipo === 'prumada') { ctx.beginPath(); ctx.arc(state.prumadaPos.x, state.prumadaPos.y, 18, 0, Math.PI * 2); ctx.stroke(); }
+        else if (o.tipo === 'alimentacao') { const al = state.alimentacaoExterna; ctx.strokeRect(al.x - 5, al.y - 5, al.w + 10, al.h + 10); }
         ctx.restore();
     }
     function atualizarBarra() {
@@ -26163,6 +26196,7 @@
         if (o && o.tipo === 'escada' && !(state.escadas || []).some(x => x.id === o.id)) state.selecaoExtra = o = null;
         if (o && (o.tipo === 'linha' || o.tipo === 'texto') && !(state.linhasMaoLivre || [])[o.idx]) state.selecaoExtra = o = null;
         if (o && o.tipo === 'ponto' && !(state.pontosEletricos || []).some(p => String(p.id) === String(o.id))) state.selecaoExtra = o = null;
+        if (o && o.tipo === 'alimentacao' && (state.alimentacaoExterna.ativa === false || state.pavimentoAtivoId !== 'terreo')) state.selecaoExtra = o = null;
         const aba = state.abaAtiva || 'planta';
         const mostrar = !!o && (aba === 'planta' || aba === 'instalacoes');
         bar.style.display = mostrar ? 'flex' : 'none';
@@ -26171,7 +26205,7 @@
         if (o.tipo === 'ponto') { const pt = state.pontosEletricos.find(p => String(p.id) === String(o.id)); if (pt) nome = `🔌 ${pt.tipo} ${pt.nome || ''}`; }
         document.getElementById('lblBarraSelecao').textContent = nome;
         const ed = document.getElementById('btnSelEditar');
-        const rotulo = { ponto: '✏️ Editar', texto: '✏️ Editar', escada: '✏️ Editar', prumada: '✏️ Editar' }[o.tipo];
+        const rotulo = { ponto: '✏️ Editar', texto: '✏️ Editar', escada: '✏️ Editar', prumada: '✏️ Editar', alimentacao: '✏️ Editar' }[o.tipo];
         ed.style.display = rotulo ? '' : 'none';
         if (rotulo) ed.textContent = rotulo;
         ['barraComodoV2', 'barraAberturaV2'].forEach(id => { const b = document.getElementById(id); if (b) b.style.display = 'none'; });
@@ -26244,6 +26278,7 @@
             if (o.tipo === 'texto') return { tipo: 'texto', ref: state.linhasMaoLivre[o.idx], idx: o.idx };
             if (o.tipo === 'ponto') return { tipo: 'ponto', ref: state.pontosEletricos.find(p => String(p.id) === String(o.id)) };
             if (o.tipo === 'prumada') return { tipo: 'prumada', ref: state.prumadaPos };
+            if (o.tipo === 'alimentacao') return { tipo: 'alimentacao', ref: state.alimentacaoExterna };
             if (o.tipo === 'linha') return { tipo: 'linha', ref: state.linhasMaoLivre[o.idx], idx: o.idx };
         }
         const c = state.comodos.find(c => String(c.id) === String(state.comodoEmEdicaoId));
@@ -26298,6 +26333,10 @@
         } else if (a.tipo === 'linha') {
             titulo = '✎ Linha à mão livre';
             h += `<div class="ep-dica">Arraste a linha na planta para mover. Use Excluir para apagar.</div>`;
+        } else if (a.tipo === 'alimentacao') {
+            titulo = '⚡ Alimentação externa';
+            h += `<div><label>Comprimento do ramal até o QDT (m)</label><input id="epDistAlim" type="number" step="0.5" placeholder="Automático pelo desenho" value="${r.distanciaManual || ''}"><div class="ep-dica">Deixe em branco para calcular pela distância no desenho (+3 m de folga).</div></div>`;
+            h += `<div class="ep-dica">Arraste na planta para mudar de lugar. Excluir tira a alimentação do desenho; para colocar de volta use ⚡ Alim. no painel.</div>`;
         } else if (a.tipo === 'prumada') {
             titulo = '▲ Prumada';
             h += `<div class="ep-dica">Arraste a prumada na planta para mudar de lugar. Excluir esconde a prumada (dá para desfazer).</div>`;
@@ -26337,6 +26376,9 @@
             const l = num(el('epLargura').value), c = num(el('epComp').value), n = num(el('epDeg').value);
             if (l) r.largura = l; if (c) r.comprimento = c; if (n) r.numDegraus = Math.max(2, Math.round(n));
             r.orientacao = lerSeg('ori') || r.orientacao;
+        } else if (alvo.tipo === 'alimentacao') {
+            const d = num(el('epDistAlim').value);
+            r.distanciaManual = d && d > 0 ? d : null;
         } else if (alvo.tipo === 'texto') {
             const t = el('epTexto').value.trim(); if (t) r.texto = t;
             const tam = num(el('epTam').value); if (tam) r.tamanho = Math.max(6, Math.min(60, tam));
