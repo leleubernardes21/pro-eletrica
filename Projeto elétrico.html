@@ -26657,8 +26657,17 @@
     // Caixa que envolve a maquete (para enquadrar e vistas)
     function caixaMaquete() {
         const THREE = T();
-        const box = new THREE.Box3();
-        if (state.meshGroup3d) box.setFromObject(state.meshGroup3d);
+        // Só o que tem altura (paredes, móveis, pontos): ignora o terreno e o piso grande
+        const box = new THREE.Box3(), b = new THREE.Box3(), tam = new THREE.Vector3();
+        if (state.meshGroup3d) {
+            state.meshGroup3d.updateMatrixWorld(true);
+            state.meshGroup3d.traverse(o => {
+                if (!o.isMesh || o.visible === false) return;
+                b.setFromObject(o); b.getSize(tam);
+                if (tam.y > 0.3 && Math.max(tam.x, tam.z) < 60) box.union(b);
+            });
+            if (box.isEmpty()) box.setFromObject(state.meshGroup3d);
+        }
         if (box.isEmpty()) box.set(new THREE.Vector3(0, 0, 0), new THREE.Vector3(12, 3, 12));
         return box;
     }
@@ -26745,6 +26754,7 @@
 
         // Barra de vistas e dica
         const cont = document.getElementById('viewport3d') && document.getElementById('viewport3d').parentElement;
+        setTimeout(() => vista3D('iso'), 400);
         if (cont && !document.getElementById('nav3dBarra')) {
             const barra = document.createElement('div');
             barra.id = 'nav3dBarra';
