@@ -26539,5 +26539,261 @@
 })();
 </script>
 
+<!-- =====================================================================
+     NAVEGAÇÃO 3D (Leo): mais fluida e melhor com o mouse
+     - Esquerdo: girar  • Direito/Meio (ou Shift+esquerdo): arrastar a vista
+     - Roda: zoom suave na direção do cursor  • Duplo clique: focar no ponto
+     - WASD/setas: andar • Q/E: descer/subir • Shift: mais rápido
+     - Vistas: Topo, Frente, Lateral, Isométrica, Enquadrar (com transição suave)
+     ===================================================================== -->
+<style>
+  #nav3dBarra { position:absolute; left:10px; bottom:10px; z-index:20; display:flex; gap:4px; flex-wrap:wrap; background:rgba(15,23,42,.88); border:1px solid #334155; border-radius:12px; padding:5px; backdrop-filter:blur(6px) }
+  #nav3dBarra button { padding:6px 9px; border-radius:8px; background:#1e293b; color:#cbd5e1; border:1px solid #334155; font-size:11px; font-weight:700; cursor:pointer }
+  #nav3dBarra button:hover { background:#334155; color:#fff }
+  #nav3dDica { position:absolute; right:10px; bottom:10px; z-index:20; background:rgba(15,23,42,.8); border:1px solid #334155; border-radius:10px; padding:6px 9px; color:#94a3b8; font-size:10px; line-height:1.5; pointer-events:none; max-width:240px }
+  @media (max-width: 640px) { #nav3dDica { display:none } }
+</style>
+<script>
+(function () {
+    'use strict';
+    let configurado = null;          // controls já configurado
+    let zoomPendente = 0;            // log do fator de zoom ainda a aplicar
+    let pontoZoom = null;            // ponto 3D na direção do cursor
+    let anim = null;                 // transição de câmera em andamento
+    const teclas = new Set();
+    let ultimoFrame = 0, rafNav = null, pivo = null, esconderPivo = null;
+
+    const T = () => (typeof THREE !== 'undefined' ? THREE : null);
+    const ctrl = () => state.controls3d;
+    const cam = () => state.camera3d;
+
+    function pedir(n) { if (typeof pedirRenderizacao3D === 'function') pedirRenderizacao3D(n); }
+
+    // Ponto da cena debaixo do cursor (maquete ou plano do chão)
+    function pontoNaTela(clientX, clientY) {
+        const THREE = T(); if (!THREE || !state.renderer3d) return null;
+        const dom = state.renderer3d.domElement, r = dom.getBoundingClientRect();
+        const mouse = new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
+        const ray = new THREE.Raycaster();
+        ray.setFromCamera(mouse, cam());
+        if (state.meshGroup3d) {
+            const hits = ray.intersectObject(state.meshGroup3d, true).filter(h => h.object.visible !== false && h.object.isMesh);
+            if (hits.length) return hits[0].point.clone();
+        }
+        const plano = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        const p = new THREE.Vector3();
+        if (ray.ray.intersectPlane(plano, p)) return p;
+        return null;
+    }
+
+    // Laço próprio da navegação (zoom suave, transições, WASD)
+    function laco(t) {
+        rafNav = null;
+        const c = ctrl(), cm = cam();
+        if (!c || !cm || state.abaAtiva !== 'visualizacao3d') { zoomPendente = 0; anim = null; teclas.clear(); return; }
+        const dt = Math.min(0.05, ultimoFrame ? (t - ultimoFrame) / 1000 : 0.016);
+        ultimoFrame = t;
+        let continuar = false;
+
+        // 1. Zoom suave em direção ao cursor
+        if (Math.abs(zoomPendente) > 0.0005) {
+            const passo = zoomPendente * 0.22;
+            zoomPendente -= passo;
+            const fator = Math.exp(passo);
+            const P = pontoZoom || c.target.clone();
+            const novaCam = P.clone().add(cm.position.clone().sub(P).multiplyScalar(fator));
+            const novoAlvo = P.clone().add(c.target.clone().sub(P).multiplyScalar(fator));
+            const dist = novaCam.distanceTo(novoAlvo);
+            if (dist > 0.8 && dist < 400 && novaCam.y > -1) { cm.position.copy(novaCam); c.target.copy(novoAlvo); }
+            else zoomPendente = 0;
+            continuar = true;
+        } else zoomPendente = 0;
+
+        // 2. Transição de câmera (vistas, focar, enquadrar)
+        if (anim) {
+            const k = Math.min(1, (t - anim.ini) / anim.dur);
+            const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+            cm.position.lerpVectors(anim.p0, anim.p1, e);
+            c.target.lerpVectors(anim.t0, anim.t1, e);
+            if (k >= 1) anim = null;
+            continuar = true;
+        }
+
+        // 3. Andar com o teclado
+        if (teclas.size) {
+            const THREE = T();
+            const frente = new THREE.Vector3(); cm.getWorldDirection(frente); frente.y = 0; frente.normalize();
+            const lado = new THREE.Vector3().crossVectors(frente, new THREE.Vector3(0, 1, 0)).normalize();
+            const v = new THREE.Vector3();
+            if (teclas.has('w') || teclas.has('arrowup')) v.add(frente);
+            if (teclas.has('s') || teclas.has('arrowdown')) v.sub(frente);
+            if (teclas.has('d') || teclas.has('arrowright')) v.add(lado);
+            if (teclas.has('a') || teclas.has('arrowleft')) v.sub(lado);
+            if (teclas.has('e')) v.y += 1;
+            if (teclas.has('q')) v.y -= 1;
+            if (v.lengthSq()) {
+                const dist = cm.position.distanceTo(c.target);
+                const vel = Math.max(2, dist * 0.9) * (teclas.has('shift') ? 2.5 : 1);
+                v.normalize().multiplyScalar(vel * dt);
+                cm.position.add(v); c.target.add(v);
+            }
+            continuar = true;
+        }
+
+        c.update();
+        if (pivo) pivo.position.copy(c.target);
+        pedir(3);
+        if (continuar) rafNav = requestAnimationFrame(laco); else ultimoFrame = 0;
+    }
+    function acordar() { if (!rafNav) rafNav = requestAnimationFrame(laco); }
+
+    function animarPara(p1, t1, dur = 550) {
+        const c = ctrl(), cm = cam(); if (!c || !cm) return;
+        zoomPendente = 0;
+        anim = { p0: cm.position.clone(), t0: c.target.clone(), p1, t1, ini: performance.now(), dur };
+        acordar();
+    }
+
+    // Caixa que envolve a maquete (para enquadrar e vistas)
+    function caixaMaquete() {
+        const THREE = T();
+        const box = new THREE.Box3();
+        if (state.meshGroup3d) box.setFromObject(state.meshGroup3d);
+        if (box.isEmpty()) box.set(new THREE.Vector3(0, 0, 0), new THREE.Vector3(12, 3, 12));
+        return box;
+    }
+    window.vista3D = function (tipo) {
+        const THREE = T(); if (!THREE || !ctrl()) return;
+        const box = caixaMaquete();
+        const centro = box.getCenter(new THREE.Vector3());
+        const tam = box.getSize(new THREE.Vector3());
+        const raio = Math.max(tam.x, tam.z, 6);
+        const fov = (cam().fov || 45) * Math.PI / 180;
+        const d = (raio / 2) / Math.tan(fov / 2) * 1.25;
+        const alvo = new THREE.Vector3(centro.x, Math.min(centro.y, 1.5), centro.z);
+        let pos;
+        if (tipo === 'topo') pos = new THREE.Vector3(alvo.x + 0.001, alvo.y + d * 1.1, alvo.z + 0.01);
+        else if (tipo === 'frente') pos = new THREE.Vector3(alvo.x, alvo.y + d * 0.25, alvo.z + d);
+        else if (tipo === 'lateral') pos = new THREE.Vector3(alvo.x + d, alvo.y + d * 0.25, alvo.z);
+        else pos = new THREE.Vector3(alvo.x + d * 0.62, alvo.y + d * 0.62, alvo.z + d * 0.72);   // isométrica / enquadrar
+        animarPara(pos, alvo);
+    };
+
+    function configurar() {
+        const THREE = T(), c = ctrl();
+        if (!THREE || !c || configurado === c) return;
+        configurado = c;
+        const dom = state.renderer3d.domElement;
+
+        // Ajustes de suavidade
+        c.enableDamping = true;
+        c.dampingFactor = 0.12;
+        c.rotateSpeed = 0.85;
+        c.panSpeed = 1.0;
+        c.screenSpacePanning = true;
+        c.enableZoom = false;              // zoom feito por este módulo (na direção do cursor)
+        c.minDistance = 0.8;
+        c.maxDistance = 400;
+        c.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN };
+        if (c.touches) c.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
+        dom.addEventListener('contextmenu', e => e.preventDefault());
+
+        // Shift + esquerdo = arrastar a vista
+        dom.addEventListener('pointerdown', e => {
+            if (e.button === 0) c.mouseButtons.LEFT = e.shiftKey ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
+        }, true);
+
+        // Render contínuo durante o gesto e até a inércia terminar
+        c.addEventListener('start', () => { pedir(30); mostrarPivo(true); });
+        c.addEventListener('change', () => pedir(12));
+        c.addEventListener('end', () => { pedir(90); mostrarPivo(false); });
+
+        // Zoom na direção do cursor
+        dom.addEventListener('wheel', e => {
+            if (state.abaAtiva !== 'visualizacao3d') return;
+            e.preventDefault();
+            let dy = e.deltaY;
+            if (e.deltaMode === 1) dy *= 33; else if (e.deltaMode === 2) dy *= 400;
+            dy = Math.max(-300, Math.min(300, dy));
+            const p = pontoNaTela(e.clientX, e.clientY);
+            if (p) pontoZoom = p;
+            zoomPendente += dy * 0.0016;
+            anim = null;
+            acordar();
+        }, { passive: false });
+
+        // Toque com 2 dedos (pinça) continua usando o zoom do OrbitControls
+        dom.addEventListener('touchstart', e => { if (e.touches.length === 2) c.enableZoom = true; }, { passive: true });
+        dom.addEventListener('touchend', () => { c.enableZoom = false; }, { passive: true });
+
+        // Duplo clique: focar no ponto clicado
+        dom.addEventListener('dblclick', e => {
+            if (state.modoEdicao3D) return;
+            const p = pontoNaTela(e.clientX, e.clientY);
+            if (!p) return;
+            const cm = cam();
+            const offset = cm.position.clone().sub(c.target);
+            const novaDist = Math.max(3, Math.min(offset.length() * 0.6, 25));
+            offset.setLength(novaDist);
+            animarPara(p.clone().add(offset), p);
+        });
+
+        // Ponto de giro (pivô) visível durante o gesto
+        pivo = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 12), new THREE.MeshBasicMaterial({ color: 0xf59e0b, depthTest: false, transparent: true, opacity: 0.9 }));
+        pivo.renderOrder = 999; pivo.visible = false;
+        state.scene3d.add(pivo);
+
+        // Barra de vistas e dica
+        const cont = document.getElementById('viewport3d') && document.getElementById('viewport3d').parentElement;
+        if (cont && !document.getElementById('nav3dBarra')) {
+            const barra = document.createElement('div');
+            barra.id = 'nav3dBarra';
+            barra.innerHTML = `
+                <button onclick="vista3D('iso')" title="Vista isométrica (I)">◇ Iso</button>
+                <button onclick="vista3D('topo')" title="Vista de cima (T)">⬒ Topo</button>
+                <button onclick="vista3D('frente')" title="Vista de frente (1)">▭ Frente</button>
+                <button onclick="vista3D('lateral')" title="Vista lateral (3)">▯ Lateral</button>
+                <button onclick="vista3D('enquadrar')" title="Enquadrar a maquete (F)">⤢ Enquadrar</button>`;
+            cont.appendChild(barra);
+            const dica = document.createElement('div');
+            dica.id = 'nav3dDica';
+            dica.innerHTML = '🖱 <b>Esquerdo</b>: girar · <b>Direito/Meio</b>: mover<br><b>Roda</b>: zoom no cursor · <b>Duplo clique</b>: focar<br>⌨ <b>WASD</b>: andar · <b>Q/E</b>: descer/subir · <b>Shift</b>: rápido';
+            cont.appendChild(dica);
+        }
+    }
+
+    function mostrarPivo(sim) {
+        if (!pivo) return;
+        clearTimeout(esconderPivo);
+        if (sim) { pivo.visible = true; pivo.position.copy(ctrl().target); }
+        else esconderPivo = setTimeout(() => { pivo.visible = false; pedir(2); }, 500);
+    }
+
+    // Teclado (só na aba 3D, sem atrapalhar campos de texto)
+    const MAPA = ['w', 'a', 's', 'd', 'q', 'e', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'];
+    document.addEventListener('keydown', ev => {
+        if (state.abaAtiva !== 'visualizacao3d') return;
+        const tag = (ev.target.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select' || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+        const k = ev.key.toLowerCase();
+        if (k === 'shift') { teclas.add('shift'); return; }
+        if (MAPA.includes(k)) { teclas.add(k); acordar(); ev.preventDefault(); ev.stopImmediatePropagation(); return; }
+        const vistas = { f: 'enquadrar', i: 'iso', t: 'topo', '1': 'frente', '3': 'lateral' };
+        if (vistas[k]) { vista3D(vistas[k]); ev.preventDefault(); ev.stopImmediatePropagation(); }
+    }, true);
+    document.addEventListener('keyup', ev => { teclas.delete(ev.key.toLowerCase()); });
+    window.addEventListener('blur', () => teclas.clear());
+
+    // Configura sempre que o motor 3D for (re)criado
+    const origInit = window.initThreeEngine;
+    if (typeof origInit === 'function') {
+        window.initThreeEngine = function () { const r = origInit.apply(this, arguments); setTimeout(configurar, 0); return r; };
+    }
+    const origTrocar = window.trocarAba;
+    window.trocarAba = function () { const r = origTrocar.apply(this, arguments); if (state.abaAtiva === 'visualizacao3d') setTimeout(configurar, 300); return r; };
+    setInterval(() => { if (state.abaAtiva === 'visualizacao3d') configurar(); }, 1500);
+})();
+</script>
+
 </body>
 </html>
