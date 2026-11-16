@@ -3837,6 +3837,37 @@
                         <p class="text-[10px] text-slate-400 italic">Define a espessura física das paredes deste ambiente no CAD 2D e na extrusão 3D BIM.</p>
                     </div>
 
+                    <!-- FORMATO DO CÔMODO: RETANGULAR OU EM L (Leo - Etapa 4) -->
+                    <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
+                        <label class="block font-bold text-violet-300 uppercase text-[11px] flex items-center gap-1.5">
+                            <i class="fa-solid fa-vector-square"></i> Formato do Cômodo
+                        </label>
+                        <select id="selFormatoComodo" onchange="atualizarCamposFormatoComodo()" class="w-full bg-slate-900 border border-slate-700 text-white rounded-xl p-2.5 text-xs outline-none">
+                            <option value="ret">▭ Retangular</option>
+                            <option value="L">⌐ Em L (recorte em um canto)</option>
+                        </select>
+                        <div id="camposRecorteComodo" class="grid grid-cols-3 gap-2 hidden">
+                            <div>
+                                <label class="block text-[10px] text-slate-400 mb-1">Canto do recorte</label>
+                                <select id="selCantoRecorte" class="w-full bg-slate-900 border border-slate-700 text-white rounded-lg p-2 text-xs">
+                                    <option value="NE">↗ Superior direito</option>
+                                    <option value="NO">↖ Superior esquerdo</option>
+                                    <option value="SE">↘ Inferior direito</option>
+                                    <option value="SO">↙ Inferior esquerdo</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-400 mb-1">Largura do recorte (m)</label>
+                                <input id="numRecorteLargura" type="number" step="0.05" min="0.3" value="1.5" class="w-full bg-slate-900 border border-slate-700 text-white rounded-lg p-2 text-xs">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] text-slate-400 mb-1">Comprimento do recorte (m)</label>
+                                <input id="numRecorteComprimento" type="number" step="0.05" min="0.3" value="1.5" class="w-full bg-slate-900 border border-slate-700 text-white rounded-lg p-2 text-xs">
+                            </div>
+                        </div>
+                        <p class="text-[10px] text-slate-400 italic">No formato em L, a área (e as cargas mínimas da NBR 5410) já descontam o recorte. O perímetro não muda.</p>
+                    </div>
+
                     <!-- PASSAGEM DE CABOS DE TOMADAS NO CÔMODO (NOVO CONTROLE NBR 5410) -->
                     <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5">
                         <div class="flex items-center justify-between">
@@ -8990,6 +9021,7 @@
                 selEsp.value = c.espessuraParede ? String(c.espessuraParede) : 'padrao';
                 atualizarPreviewEspessuraComodo(selEsp.value);
             }
+            preencherCamposFormatoComodo(c);
 
             const selPav = document.getElementById('selComodoPavimento');
             if (selPav) {
@@ -9028,6 +9060,7 @@
                 selEsp.value = 'padrao';
                 atualizarPreviewEspessuraComodo('padrao');
             }
+            preencherCamposFormatoComodo(null);
 
             // Popula seletor de pavimentos no modal
             const selPav = document.getElementById('selComodoPavimento');
@@ -9048,6 +9081,31 @@
 
             const modal = document.getElementById('modalComodo');
             if (modal) modal.classList.remove('hidden');
+        }
+
+        // Formulário: formato do cômodo (retangular / L)
+        function atualizarCamposFormatoComodo() {
+            const sel = document.getElementById('selFormatoComodo');
+            const box = document.getElementById('camposRecorteComodo');
+            if (box) box.classList.toggle('hidden', !sel || sel.value !== 'L');
+        }
+        function preencherCamposFormatoComodo(c) {
+            const sel = document.getElementById('selFormatoComodo');
+            if (!sel) return;
+            const r = c && c.recorte;
+            sel.value = r ? 'L' : 'ret';
+            document.getElementById('selCantoRecorte').value = (r && r.canto) || 'NE';
+            document.getElementById('numRecorteLargura').value = r ? r.largura : 1.5;
+            document.getElementById('numRecorteComprimento').value = r ? r.comprimento : 1.5;
+            atualizarCamposFormatoComodo();
+        }
+        function lerRecorteFormulario() {
+            const sel = document.getElementById('selFormatoComodo');
+            if (!sel || sel.value !== 'L') return null;
+            const largura = parseFloat(String(document.getElementById('numRecorteLargura').value).replace(',', '.')) || 0;
+            const comprimento = parseFloat(String(document.getElementById('numRecorteComprimento').value).replace(',', '.')) || 0;
+            if (largura <= 0 || comprimento <= 0) return null;
+            return { canto: document.getElementById('selCantoRecorte').value, largura, comprimento };
         }
 
         function fecharModalComodo() {
@@ -9850,6 +9908,8 @@
                         state.comodos[idx].cargas = cargasSalvar;
                         state.comodos[idx].passagemTomadas = passagemTomadas;
                         state.comodos[idx].espessuraParede = espessuraComodo;
+                        state.comodos[idx].recorte = lerRecorteFormulario();
+                        state.comodos[idx].area = areaRealComodo(state.comodos[idx]);
                     }
                     fecharModalComodo();
                 } else {
@@ -9871,8 +9931,10 @@
                         y: novoy,
                         cargas: cargasSalvar,
                         passagemTomadas: passagemTomadas,
-                        espessuraParede: espessuraComodo
+                        espessuraParede: espessuraComodo,
+                        recorte: lerRecorteFormulario()
                     };
+                    novoComodo.area = areaRealComodo(novoComodo);
                     state.comodos.push(novoComodo);
                     gerarPontosEletricosParaComodo(novoComodo);
                     fecharModalComodo();
@@ -10455,6 +10517,7 @@
                         c.largura = novaLarg;
                         c.comprimento = novoComp;
                         c.area = parseFloat((novaLarg * novoComp).toFixed(2));
+                        if (c.recorte) c.area = areaRealComodo(c);
                         c.perimetro = parseFloat((2 * (novaLarg + novoComp)).toFixed(2));
 
                         // Reposiciona proporcionalmente os pontos elétricos
@@ -10981,6 +11044,7 @@
                         c.largura = novaLarg;
                         c.comprimento = novoComp;
                         c.area = parseFloat((novaLarg * novoComp).toFixed(2));
+                        if (c.recorte) c.area = areaRealComodo(c);
                         c.perimetro = parseFloat((2 * (novaLarg + novoComp)).toFixed(2));
 
                         state.pontosEletricos.forEach(pt => {
@@ -13582,6 +13646,7 @@
     
         function desenharCAD() {
             const _telemetryStart = performance.now();
+            (state.comodos || []).forEach(c => { if (c.recorte) c.area = areaRealComodo(c); });
             const canvas = document.getElementById('cadCanvas');
             if (!canvas) return;
             const container = canvas.parentElement;
@@ -13727,13 +13792,16 @@
                 const isEditing = (String(state.comodoEmEdicaoId) === String(c.id));
 
                 const meiaEsp = obterMeiaEspessuraPx(c);
+                const polPiso = poligonoComodo(c, meiaEsp);
                 ctx.fillStyle = isEditing ? 'rgba(51, 65, 85, 0.9)' : 'rgba(30, 41, 59, 0.85)';
-                ctx.fillRect(c.x + meiaEsp, c.y + meiaEsp, Math.max(0, w - 2 * meiaEsp), Math.max(0, h - 2 * meiaEsp));
+                tracarPoligono(ctx, polPiso);
+                ctx.fill();
                 if (isEditing) {
                     ctx.strokeStyle = '#f59e0b';
                     ctx.lineWidth = 2;
                     ctx.setLineDash([6, 4]);
-                    ctx.strokeRect(c.x + meiaEsp, c.y + meiaEsp, w - 2 * meiaEsp, h - 2 * meiaEsp);
+                    tracarPoligono(ctx, polPiso);
+                    ctx.stroke();
                     ctx.setLineDash([]);
                 }
 
@@ -14157,13 +14225,16 @@
                 const isEditing = (String(state.comodoEmEdicaoId) === String(c.id));
 
                 const meiaEsp = obterMeiaEspessuraPx(c);
+                const polPiso = poligonoComodo(c, meiaEsp);
                 ctx.fillStyle = isEditing ? 'rgba(51, 65, 85, 0.9)' : 'rgba(15, 23, 42, 0.75)';
-                ctx.fillRect(c.x + meiaEsp, c.y + meiaEsp, Math.max(0, w - 2 * meiaEsp), Math.max(0, h - 2 * meiaEsp));
+                tracarPoligono(ctx, polPiso);
+                ctx.fill();
                 if (isEditing) {
                     ctx.strokeStyle = '#f59e0b';
                     ctx.lineWidth = 2;
                     ctx.setLineDash([6, 4]);
-                    ctx.strokeRect(c.x + meiaEsp, c.y + meiaEsp, w - 2 * meiaEsp, h - 2 * meiaEsp);
+                    tracarPoligono(ctx, polPiso);
+                    ctx.stroke();
                     ctx.setLineDash([]);
                 }
 
@@ -14803,18 +14874,57 @@
             return Math.max(1.5, (esp * (state.escala || 35)) / 2);
         }
 
+        // Recorte de canto (cômodo em L): c.recorte = { canto: 'NE'|'NO'|'SE'|'SO', largura, comprimento } em metros
+        function recorteValido(c) {
+            const r = c && c.recorte;
+            if (!r || !r.canto) return null;
+            const rl = Math.min(parseFloat(r.largura) || 0, c.largura - 0.3);
+            const rc = Math.min(parseFloat(r.comprimento) || 0, c.comprimento - 0.3);
+            if (rl <= 0.05 || rc <= 0.05) return null;
+            return { canto: r.canto, largura: rl, comprimento: rc };
+        }
+
+        function areaRealComodo(c) {
+            const r = recorteValido(c);
+            const a = c.largura * c.comprimento - (r ? r.largura * r.comprimento : 0);
+            return Math.round(a * 100) / 100;
+        }
+
+        // Contorno do cômodo em pixels. inset > 0 encolhe para dentro (usado para o piso).
+        function poligonoComodo(c, inset = 0) {
+            const e = state.escala || 35;
+            const w = c.largura * e, h = c.comprimento * e, m = inset;
+            const r = recorteValido(c);
+            let pts;
+            if (!r) {
+                pts = [[m, m], [w - m, m], [w - m, h - m], [m, h - m]];
+            } else {
+                const nw = r.largura * e, nh = r.comprimento * e;
+                // Recorte no canto superior direito (NE); os outros cantos são espelhados
+                pts = [[m, m], [w - nw - m, m], [w - nw - m, nh + m], [w - m, nh + m], [w - m, h - m], [m, h - m]];
+                const espX = (r.canto === 'NO' || r.canto === 'SO');
+                const espY = (r.canto === 'SE' || r.canto === 'SO');
+                pts = pts.map(([px, py]) => [espX ? w - px : px, espY ? h - py : py]);
+            }
+            return pts.map(([px, py]) => ({ x: c.x + px, y: c.y + py }));
+        }
+
+        function tracarPoligono(ctx, pts) {
+            ctx.beginPath();
+            pts.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+            ctx.closePath();
+        }
+
         function desenharParedesReais(ctx, comodos, ehInstalacoes) {
             if (!comodos || !comodos.length) return;
             ctx.save();
-            ctx.fillStyle = ehInstalacoes ? '#64748b' : '#cbd5e1';
+            ctx.strokeStyle = ehInstalacoes ? '#64748b' : '#cbd5e1';
+            ctx.lineJoin = 'miter';
+            ctx.setLineDash([]);
             comodos.forEach(c => {
-                const w = c.largura * state.escala;
-                const h = c.comprimento * state.escala;
-                const m = obterMeiaEspessuraPx(c);
-                ctx.beginPath();
-                ctx.rect(c.x - m, c.y - m, w + 2 * m, h + 2 * m);
-                ctx.rect(c.x + m, c.y + m, Math.max(0, w - 2 * m), Math.max(0, h - 2 * m));
-                ctx.fill('evenodd');
+                ctx.lineWidth = obterMeiaEspessuraPx(c) * 2;
+                tracarPoligono(ctx, poligonoComodo(c, 0));
+                ctx.stroke();
             });
             ctx.restore();
         }
