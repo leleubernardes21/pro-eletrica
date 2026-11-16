@@ -10283,7 +10283,7 @@
                     const ch = c.comprimento * state.escala;
                     const seX = c.x + cw;
                     const seY = c.y + ch;
-                    if (Math.abs(mx - seX) <= 14 && Math.abs(my - seY) <= 14) {
+                    if (Math.abs(mx - seX) <= 20 && Math.abs(my - seY) <= 20) {
                         state.arrastando = {
                             tipo: 'resize_comodo',
                             comodo: c,
@@ -25550,6 +25550,130 @@
         }, { capture: true, passive: false });
     }
     ['cadCanvas', 'instalacoesCanvas'].forEach(id => { ligar(id); ligarToque(id); });
+})();
+</script>
+
+<!-- =====================================================================
+     BARRA DO CÔMODO SELECIONADO (Leo - Etapa 6): editar medidas, girar,
+     duplicar, empurrar 5 cm e excluir, com botões grandes para o celular
+     ===================================================================== -->
+<div id="barraComodoV2" class="no-print" style="position:fixed;left:12px;right:12px;bottom:136px;z-index:45;display:none;justify-content:center;pointer-events:none">
+  <div style="pointer-events:auto;display:flex;flex-wrap:wrap;gap:5px;align-items:center;background:rgba(15,23,42,.94);border:1px solid #475569;border-radius:14px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.5);max-width:560px">
+    <span id="lblBarraComodo" style="color:#fde68a;font-size:11px;font-weight:800;padding:0 6px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+    <button onclick="acaoComodo('editar')" title="Editar medidas e formato" style="padding:7px 9px;border-radius:9px;background:#1e293b;color:#e2e8f0;font-size:12px;font-weight:700;border:1px solid #334155">✏️ Medidas</button>
+    <button onclick="acaoComodo('girar')" title="Girar 90°" style="padding:7px 9px;border-radius:9px;background:#1e293b;color:#e2e8f0;font-size:12px;font-weight:700;border:1px solid #334155">⟳ Girar</button>
+    <button onclick="acaoComodo('duplicar')" title="Duplicar ao lado" style="padding:7px 9px;border-radius:9px;background:#1e293b;color:#e2e8f0;font-size:12px;font-weight:700;border:1px solid #334155">⧉ Duplicar</button>
+    <span style="display:inline-flex;gap:3px">
+      <button onclick="acaoComodo('esq')" title="Empurrar 5 cm" style="width:30px;padding:7px 0;border-radius:9px;background:#1e293b;color:#e2e8f0;font-size:12px;border:1px solid #334155">◀</button>
+      <button onclick="acaoComodo('cima')" title="Empurrar 5 cm" style="width:30px;padding:7px 0;border-radius:9px;background:#1e293b;color:#e2e8f0;font-size:12px;border:1px solid #334155">▲</button>
+      <button onclick="acaoComodo('baixo')" title="Empurrar 5 cm" style="width:30px;padding:7px 0;border-radius:9px;background:#1e293b;color:#e2e8f0;font-size:12px;border:1px solid #334155">▼</button>
+      <button onclick="acaoComodo('dir')" title="Empurrar 5 cm" style="width:30px;padding:7px 0;border-radius:9px;background:#1e293b;color:#e2e8f0;font-size:12px;border:1px solid #334155">▶</button>
+    </span>
+    <button onclick="acaoComodo('excluir')" title="Excluir cômodo" style="padding:7px 9px;border-radius:9px;background:#450a0a;color:#fca5a5;font-size:12px;font-weight:700;border:1px solid #7f1d1d">🗑</button>
+    <button onclick="acaoComodo('fechar')" title="Tirar seleção" style="padding:7px 9px;border-radius:9px;background:transparent;color:#94a3b8;font-size:12px;border:1px solid #334155">✕</button>
+  </div>
+</div>
+<script>
+(function () {
+    'use strict';
+    const PASSO_M = 0.05;
+    function sel() { return state.comodos.find(c => String(c.id) === String(state.comodoEmEdicaoId)); }
+    function concluir() {
+        detectarProximidadeComodos();
+        atualizarTudo();
+        reconstruirCena3D();
+        salvarProjetoSilencioso();
+    }
+    function moverComodo(c, dx, dy) {
+        c.x += dx; c.y += dy;
+        state.pontosEletricos.forEach(p => { if (String(p.comodoId) === String(c.id)) { p.x += dx; p.y += dy; } });
+    }
+
+    window.acaoComodo = function (acao) {
+        const c = sel();
+        if (!c) return;
+        const e = state.escala || 35;
+        const travado = !!(c.fixado || state.comodosFixados);
+        if (travado && acao !== 'editar' && acao !== 'fechar' && acao !== 'duplicar') {
+            mostrarNotificacaoToast('🔒 Cômodo travado. Destrave para mover ou girar.', 'aviso');
+            return;
+        }
+        if (acao === 'fechar') { state.comodoEmEdicaoId = null; desenharCAD(); desenharInstalacoes(); return; }
+        if (acao === 'editar') { iniciarEdicaoComodo(c.id); return; }
+        if (acao === 'excluir') { removerComodoId(c.id); return; }
+        if (acao === 'esq') { moverComodo(c, -PASSO_M * e, 0); return concluir(); }
+        if (acao === 'dir') { moverComodo(c, PASSO_M * e, 0); return concluir(); }
+        if (acao === 'cima') { moverComodo(c, 0, -PASSO_M * e); return concluir(); }
+        if (acao === 'baixo') { moverComodo(c, 0, PASSO_M * e); return concluir(); }
+
+        if (acao === 'girar') {
+            // Gira 90° no sentido horário em torno do canto superior esquerdo; pontos e recorte acompanham
+            const wPx = c.largura * e;
+            const hPx = c.comprimento * e;
+            state.pontosEletricos.forEach(p => {
+                if (String(p.comodoId) !== String(c.id)) return;
+                const dx = p.x - c.x, dy = p.y - c.y;
+                p.x = c.x + (hPx - dy);
+                p.y = c.y + dx;
+            });
+            (state.aberturas || []).forEach(ab => {
+                if (String(ab.comodoId) !== String(c.id)) return;
+                const giro = { top: 'right', right: 'bottom', bottom: 'left', left: 'top' };
+                ab.lado = giro[ab.lado] || ab.lado;
+                if (ab.lado === 'left' || ab.lado === 'right') { /* top->right mantém t; bottom->left inverte */ }
+                if (ab.lado === 'top' || ab.lado === 'bottom') ab.t = 1 - (ab.t ?? 0.5);
+            });
+            if (c.recorte) {
+                const giroCanto = { NE: 'SE', SE: 'SO', SO: 'NO', NO: 'NE' };
+                c.recorte = { canto: giroCanto[c.recorte.canto] || c.recorte.canto, largura: c.recorte.comprimento, comprimento: c.recorte.largura };
+            }
+            const L = c.largura; c.largura = c.comprimento; c.comprimento = L;
+            mostrarNotificacaoToast(`⟳ ${c.nome} girado: ${c.largura.toFixed(2)} × ${c.comprimento.toFixed(2)} m`, 'sucesso');
+            return concluir();
+        }
+
+        if (acao === 'duplicar') {
+            const novo = JSON.parse(JSON.stringify(c));
+            novo.id = Date.now();
+            novo.nome = c.nome + ' (cópia)';
+            novo.x = c.x + c.largura * e;   // encostado à direita (parede compartilhada)
+            novo.fixado = false;
+            state.comodos.push(novo);
+            (state.aberturas || []).filter(ab => String(ab.comodoId) === String(c.id)).forEach((ab, i) => {
+                state.aberturas.push({ ...ab, id: 'ab_' + Date.now() + '_' + i, comodoId: novo.id });
+            });
+            if (typeof gerarPontosEletricosParaComodo === 'function') gerarPontosEletricosParaComodo(novo);
+            state.comodoEmEdicaoId = novo.id;
+            mostrarNotificacaoToast(`⧉ "${novo.nome}" criado ao lado. Arraste para posicionar.`, 'sucesso');
+            return concluir();
+        }
+    };
+
+    function atualizarBarraComodo() {
+        const bar = document.getElementById('barraComodoV2');
+        if (!bar) return;
+        const c = sel();
+        const aba = state.abaAtiva || 'planta';
+        const modalAberto = !document.getElementById('modalComodo').classList.contains('hidden');
+        const mostrar = !!c && (aba === 'planta' || aba === 'instalacoes') && !modalAberto;
+        bar.style.display = mostrar ? 'flex' : 'none';
+        if (mostrar) document.getElementById('lblBarraComodo').textContent = c.nome;
+    }
+    const origDesenharCAD = window.desenharCAD;
+    window.desenharCAD = function () { const r = origDesenharCAD.apply(this, arguments); atualizarBarraComodo(); return r; };
+    const origTrocar = window.trocarAba;
+    window.trocarAba = function () { const r = origTrocar.apply(this, arguments); atualizarBarraComodo(); return r; };
+    const origFechar = window.fecharModalComodo;
+    if (typeof origFechar === 'function') window.fecharModalComodo = function () { const r = origFechar.apply(this, arguments); atualizarBarraComodo(); return r; };
+
+    // Teclado (computador): setas empurram 5 cm o cômodo selecionado
+    document.addEventListener('keydown', (ev) => {
+        const tag = (ev.target.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+        if (!sel()) return;
+        const mapa = { ArrowLeft: 'esq', ArrowRight: 'dir', ArrowUp: 'cima', ArrowDown: 'baixo' };
+        if (mapa[ev.key] && (state.abaAtiva === 'planta' || state.abaAtiva === 'instalacoes')) { ev.preventDefault(); acaoComodo(mapa[ev.key]); }
+    });
 })();
 </script>
 
