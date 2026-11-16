@@ -831,10 +831,10 @@
                                 <div class="w-px h-5 bg-slate-800 mx-1"></div>
 
                                 <!-- INSERÇÃO ARQUITETÔNICA -->
-                                <button onclick="abrirModalTransicaoTipo('porta')" class="px-2.5 py-1.5 rounded-lg font-bold text-[11px] bg-slate-900 hover:bg-slate-850 text-amber-400 border border-slate-800 hover:border-amber-500/40 flex items-center gap-1.5 transition" title="Inserir Porta Arquitetônica">
+                                <button onclick="iniciarInsercaoAbertura('porta')" class="px-2.5 py-1.5 rounded-lg font-bold text-[11px] bg-slate-900 hover:bg-slate-850 text-amber-400 border border-slate-800 hover:border-amber-500/40 flex items-center gap-1.5 transition" title="Inserir Porta Arquitetônica">
                                     <i class="fa-solid fa-door-open"></i> + Porta
                                 </button>
-                                <button onclick="abrirModalTransicaoTipo('janela')" class="px-2.5 py-1.5 rounded-lg font-bold text-[11px] bg-slate-900 hover:bg-slate-850 text-sky-400 border border-slate-800 hover:border-sky-500/40 flex items-center gap-1.5 transition" title="Inserir Janela">
+                                <button onclick="iniciarInsercaoAbertura('janela')" class="px-2.5 py-1.5 rounded-lg font-bold text-[11px] bg-slate-900 hover:bg-slate-850 text-sky-400 border border-slate-800 hover:border-sky-500/40 flex items-center gap-1.5 transition" title="Inserir Janela">
                                     <i class="fa-regular fa-window-maximize"></i> + Janela
                                 </button>
                                 <button onclick="toggleCotasExibicao()" class="px-2.5 py-1.5 rounded-lg font-bold text-[11px] bg-slate-900 hover:bg-slate-850 text-slate-300 border border-slate-800 hover:border-slate-700 flex items-center gap-1.5 transition" title="Exibir / Ocultar Cotas e Medições">
@@ -5287,6 +5287,8 @@
             comodos: [],
             pontosEletricos: [],
             eletrodutoWaypoints: {},
+            aberturas: [],
+            aberturaSelecionadaId: null,
             linhasMaoLivre: [],
             linhaAtual: null,
             qdtPos: { x: 40, y: 40, w: 45, h: 26 },
@@ -5632,6 +5634,7 @@
                 pontosEletricos: JSON.parse(JSON.stringify(state.pontosEletricos)),
                 eletrodutoWaypoints: JSON.parse(JSON.stringify(state.eletrodutoWaypoints || {})),
                 transicoes: JSON.parse(JSON.stringify(state.transicoes || [])),
+                aberturas: JSON.parse(JSON.stringify(state.aberturas || [])),
                 escadas: JSON.parse(JSON.stringify(state.escadas || [])),
                 imoveis: JSON.parse(JSON.stringify(state.imoveis || [])),
                 regimeImovel: state.regimeImovel || 'mesmo_imovel',
@@ -5706,6 +5709,7 @@
             if (snapshot.eletrodutoWaypoints) state.eletrodutoWaypoints = JSON.parse(JSON.stringify(snapshot.eletrodutoWaypoints));
             if (snapshot.transicoes) state.transicoes = JSON.parse(JSON.stringify(snapshot.transicoes));
             state.escadas = snapshot.escadas ? JSON.parse(JSON.stringify(snapshot.escadas)) : [];
+            state.aberturas = snapshot.aberturas ? JSON.parse(JSON.stringify(snapshot.aberturas)) : [];
             if (snapshot.imoveis) state.imoveis = JSON.parse(JSON.stringify(snapshot.imoveis));
             if (snapshot.regimeImovel) state.regimeImovel = snapshot.regimeImovel;
             if (snapshot.unidadeQdtAtivaId) state.unidadeQdtAtivaId = snapshot.unidadeQdtAtivaId;
@@ -13713,27 +13717,24 @@
                 ctx.stroke();
             });
 
-            // 6. Desenho dos Cômodos do Andar Ativo
+            // 6. Paredes reais (espessura preenchida, unidas entre cômodos vizinhos)
+            desenharParedesReais(ctx, comodosAndar, false);
+
+            // 6b. Piso e textos dos Cômodos do Andar Ativo
             comodosAndar.forEach(c => {
                 const w = c.largura * state.escala;
                 const h = c.comprimento * state.escala;
                 const isEditing = (String(state.comodoEmEdicaoId) === String(c.id));
 
+                const meiaEsp = obterMeiaEspessuraPx(c);
                 ctx.fillStyle = isEditing ? 'rgba(51, 65, 85, 0.9)' : 'rgba(30, 41, 59, 0.85)';
-                ctx.fillRect(c.x, c.y, w, h);
-
-                // Parede Arquitetônica com espessura técnica normativa (NBR 15575 / 15270 / 16868)
-                const espM = c.espessuraParede || state.espessuraParede || 0.15;
-                const espPx = Math.max(2, espM * state.escala);
-                ctx.strokeStyle = isEditing ? '#f59e0b' : '#cbd5e1';
-                ctx.lineWidth = isEditing ? 3.5 : 2.5;
-                ctx.strokeRect(c.x, c.y, w, h);
-
-                // Linha interna de espessura de alvenaria se o espaço comportar
-                if (w > espPx * 2.2 && h > espPx * 2.2) {
-                    ctx.strokeStyle = isEditing ? 'rgba(245, 158, 11, 0.45)' : 'rgba(148, 163, 184, 0.4)';
-                    ctx.lineWidth = 1;
-                    ctx.strokeRect(c.x + espPx, c.y + espPx, w - 2 * espPx, h - 2 * espPx);
+                ctx.fillRect(c.x + meiaEsp, c.y + meiaEsp, Math.max(0, w - 2 * meiaEsp), Math.max(0, h - 2 * meiaEsp));
+                if (isEditing) {
+                    ctx.strokeStyle = '#f59e0b';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([6, 4]);
+                    ctx.strokeRect(c.x + meiaEsp, c.y + meiaEsp, w - 2 * meiaEsp, h - 2 * meiaEsp);
+                    ctx.setLineDash([]);
                 }
 
                 // Rótulos e textos adaptados para ambientes compactos (< 0.90m)
@@ -13808,8 +13809,9 @@
                 }
             });
 
-            // 7. Transições (Portas / Corredores)
+            // 7. Transições (Portas / Corredores) e aberturas (janelas / portas externas)
             desenharTransicoes(ctx);
+            desenharAberturas(ctx, comodosAndar);
 
             // 7b. Escadas Arquitetônicas NBR 6492
             desenharEscadas(ctx);
@@ -14145,18 +14147,25 @@
 
             const comodosAndar = state.comodos.filter(c => c.pavimentoId === state.pavimentoAtivoId);
 
-            // Cômodos
+            // Paredes reais
+            desenharParedesReais(ctx, comodosAndar, true);
+
+            // Cômodos (piso e textos)
             comodosAndar.forEach(c => {
                 const w = c.largura * state.escala;
                 const h = c.comprimento * state.escala;
                 const isEditing = (String(state.comodoEmEdicaoId) === String(c.id));
 
+                const meiaEsp = obterMeiaEspessuraPx(c);
                 ctx.fillStyle = isEditing ? 'rgba(51, 65, 85, 0.9)' : 'rgba(15, 23, 42, 0.75)';
-                ctx.fillRect(c.x, c.y, w, h);
-
-                ctx.strokeStyle = isEditing ? '#f59e0b' : '#475569';
-                ctx.lineWidth = isEditing ? 3.5 : 3;
-                ctx.strokeRect(c.x, c.y, w, h);
+                ctx.fillRect(c.x + meiaEsp, c.y + meiaEsp, Math.max(0, w - 2 * meiaEsp), Math.max(0, h - 2 * meiaEsp));
+                if (isEditing) {
+                    ctx.strokeStyle = '#f59e0b';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([6, 4]);
+                    ctx.strokeRect(c.x + meiaEsp, c.y + meiaEsp, w - 2 * meiaEsp, h - 2 * meiaEsp);
+                    ctx.setLineDash([]);
+                }
 
                 ctx.fillStyle = isEditing ? '#fef08a' : '#64748b';
                 ctx.font = 'bold 12px sans-serif';
@@ -14219,6 +14228,7 @@
             });
 
             desenharTransicoes(ctx);
+            desenharAberturas(ctx, comodosAndar);
             desenharEscadas(ctx);
 
             // 1. INFRAESTRUTURA PRINCIPAL (ELETRODUTOS QDT -> CÔMODOS)
@@ -14783,145 +14793,181 @@
             }
         }
 
+        // =========================================================================
+        // PAREDES REAIS E ABERTURAS (Leo - Etapa 3)
+        // Paredes desenhadas centradas na linha do cômodo, com a espessura real.
+        // Cômodos vizinhos dividem a mesma parede (sem parede dupla).
+        // =========================================================================
+        function obterMeiaEspessuraPx(c) {
+            const esp = (c && c.espessuraParede) || state.espessuraParede || 0.15;
+            return Math.max(1.5, (esp * (state.escala || 35)) / 2);
+        }
+
+        function desenharParedesReais(ctx, comodos, ehInstalacoes) {
+            if (!comodos || !comodos.length) return;
+            ctx.save();
+            ctx.fillStyle = ehInstalacoes ? '#64748b' : '#cbd5e1';
+            comodos.forEach(c => {
+                const w = c.largura * state.escala;
+                const h = c.comprimento * state.escala;
+                const m = obterMeiaEspessuraPx(c);
+                ctx.beginPath();
+                ctx.rect(c.x - m, c.y - m, w + 2 * m, h + 2 * m);
+                ctx.rect(c.x + m, c.y + m, Math.max(0, w - 2 * m), Math.max(0, h - 2 * m));
+                ctx.fill('evenodd');
+            });
+            ctx.restore();
+        }
+
+        // Geometria de uma abertura (janela / porta externa) presa à parede de um cômodo
+        // lado: 'top' | 'bottom' | 'left' | 'right'; t: posição do centro ao longo da parede (0 a 1)
+        function geometriaAbertura(ab, c) {
+            const w = c.largura * state.escala;
+            const h = c.comprimento * state.escala;
+            const vertical = (ab.lado === 'left' || ab.lado === 'right');
+            const comp = vertical ? h : w;
+            const meio = Math.min(comp / 2 - 2, ((ab.largura || 1.2) * state.escala) / 2);
+            const t = Math.max(0, Math.min(1, ab.t ?? 0.5));
+            const pos = Math.max(meio, Math.min(comp - meio, t * comp));
+            let cx, cy, dentro;
+            if (ab.lado === 'top') { cx = c.x + pos; cy = c.y; dentro = 1; }
+            else if (ab.lado === 'bottom') { cx = c.x + pos; cy = c.y + h; dentro = -1; }
+            else if (ab.lado === 'left') { cx = c.x; cy = c.y + pos; dentro = 1; }
+            else { cx = c.x + w; cy = c.y + pos; dentro = -1; }
+            return { cx, cy, meio, vertical, dentro, comp };
+        }
+
+        function desenharAberturas(ctx, comodos) {
+            const lista = state.aberturas || [];
+            if (!lista.length) return;
+            const porId = {};
+            comodos.forEach(c => { porId[String(c.id)] = c; });
+            lista.forEach(ab => {
+                const c = porId[String(ab.comodoId)];
+                if (!c) return;
+                const g = geometriaAbertura(ab, c);
+                const mp = obterMeiaEspessuraPx(c) + 1;
+                const sel = (state.aberturaSelecionadaId === ab.id);
+                ctx.save();
+                ctx.translate(g.cx, g.cy);
+                if (g.vertical) ctx.rotate(Math.PI / 2);
+                // Recorte do vão
+                ctx.fillStyle = 'rgb(30, 41, 59)';
+                ctx.fillRect(-g.meio, -mp, g.meio * 2, mp * 2);
+                if (ab.tipo === 'janela') {
+                    // Janela (NBR 6492): duas linhas da parede + linha central do vidro
+                    ctx.strokeStyle = sel ? '#fde047' : '#7dd3fc';
+                    ctx.lineWidth = 1.4;
+                    ctx.beginPath();
+                    ctx.moveTo(-g.meio, -mp); ctx.lineTo(g.meio, -mp);
+                    ctx.moveTo(-g.meio, mp); ctx.lineTo(g.meio, mp);
+                    ctx.moveTo(-g.meio, -mp); ctx.lineTo(-g.meio, mp);
+                    ctx.moveTo(g.meio, -mp); ctx.lineTo(g.meio, mp);
+                    ctx.stroke();
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(-g.meio, 0); ctx.lineTo(g.meio, 0);
+                    ctx.stroke();
+                } else {
+                    // Porta externa: folha abrindo para dentro do cômodo
+                    const dir = (g.vertical ? -g.dentro : g.dentro); // sentido "para dentro" no eixo local
+                    const folha = g.meio * 2;
+                    ctx.strokeStyle = sel ? '#fde047' : '#f59e0b';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(-g.meio, -mp); ctx.lineTo(-g.meio, mp);
+                    ctx.moveTo(g.meio, -mp); ctx.lineTo(g.meio, mp);
+                    ctx.moveTo(-g.meio, dir * mp); ctx.lineTo(-g.meio, dir * (mp + folha));
+                    ctx.stroke();
+                    ctx.strokeStyle = sel ? '#fde047' : '#fbbf24';
+                    ctx.lineWidth = 1.1;
+                    ctx.setLineDash([3, 3]);
+                    ctx.beginPath();
+                    if (dir > 0) ctx.arc(-g.meio, mp, folha, 0, Math.PI / 2);
+                    else ctx.arc(-g.meio, -mp, folha, -Math.PI / 2, 0);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+                if (sel) {
+                    ctx.fillStyle = '#fde047';
+                    ctx.font = 'bold 9px sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(`${ab.tipo === 'janela' ? 'J' : 'P'} ${(ab.largura || 1.2).toFixed(2)}m`, 0, -mp - 4);
+                }
+                ctx.restore();
+            });
+        }
+
         function desenharTransicoes(ctx) {
             const transDoAndar = state.transicoes.filter(t => t.pavimentoId === state.pavimentoAtivoId);
             transDoAndar.forEach(t => {
                 const tx = t.x;
                 const ty = t.y;
 
+                // Medidas reais: vão da porta (padrão 0,80 m) e espessura da parede em pixels
+                const esc = state.escala || 35;
+                const meio = ((t.largura || (t.tipo === 'porta' ? 0.80 : 1.00)) * esc) / 2;
+                const meiaParede = Math.max(1.5, ((state.espessuraParede || 0.15) * esc) / 2) + 1;
+                const corPiso = 'rgb(30, 41, 59)';
+
+                if (t.tipo === 'parede') return; // parede contínua: as paredes reais já estão desenhadas
+
+                ctx.save();
+                ctx.translate(tx, ty);
+                if (t.orientacao === 'V') ctx.rotate(Math.PI / 2);
+
+                // Recorte do vão na parede
+                ctx.fillStyle = corPiso;
+                ctx.fillRect(-meio, -meiaParede, meio * 2, meiaParede * 2);
+
                 if (t.tipo === 'porta') {
-                    // DESENHO ARQUITETÔNICO LIMPO DE PORTA (NBR 6492)
-                    ctx.save();
-                    ctx.translate(tx, ty);
-                    if (t.orientacao === 'V') ctx.rotate(Math.PI / 2);
-
-                    // Abertura no vão da alvenaria (recorte limpo)
-                    ctx.fillStyle = '#0f172a';
-                    ctx.fillRect(-14, -3, 28, 6);
-
-                    // Batentes / Ticks das extremidades
+                    // Batentes
                     ctx.strokeStyle = '#f59e0b';
-                    ctx.lineWidth = 2.0;
+                    ctx.lineWidth = 2;
                     ctx.beginPath();
-                    ctx.moveTo(-14, -4); ctx.lineTo(-14, 4);
-                    ctx.moveTo(14, -4); ctx.lineTo(14, 4);
+                    ctx.moveTo(-meio, -meiaParede); ctx.lineTo(-meio, meiaParede);
+                    ctx.moveTo(meio, -meiaParede); ctx.lineTo(meio, meiaParede);
                     ctx.stroke();
-
-                    // Folha da porta aberta (linha sólida)
-                    ctx.strokeStyle = '#f59e0b';
+                    // Folha aberta a 90° e arco de giro (NBR 6492)
+                    const folha = meio * 2;
                     ctx.lineWidth = 2.2;
                     ctx.beginPath();
-                    ctx.moveTo(-14, 0);
-                    ctx.lineTo(-14, -18);
+                    ctx.moveTo(-meio, -meiaParede);
+                    ctx.lineTo(-meio, -meiaParede - folha);
                     ctx.stroke();
-
-                    // Arco de giro / abertura da porta (linha suave tracejada NBR)
                     ctx.strokeStyle = '#fbbf24';
-                    ctx.lineWidth = 1.2;
-                    ctx.setLineDash([2, 2]);
+                    ctx.lineWidth = 1.1;
+                    ctx.setLineDash([3, 3]);
                     ctx.beginPath();
-                    ctx.arc(-14, 0, 18, -Math.PI / 2, 0);
+                    ctx.arc(-meio, -meiaParede, folha, -Math.PI / 2, 0);
                     ctx.stroke();
                     ctx.setLineDash([]);
-
-                    // Ponto pivô discreto
-                    ctx.fillStyle = '#fbbf24';
-                    ctx.beginPath();
-                    ctx.arc(-14, 0, 2.5, 0, Math.PI * 2);
-                    ctx.fill();
-
                     if (state.exibirRotulosTransicoesTexto) {
                         ctx.fillStyle = '#fbbf24';
                         ctx.font = 'bold 8px sans-serif';
-                        ctx.fillText('PORTA', -12, 10);
+                        ctx.fillText('P ' + (meio * 2 / esc).toFixed(2) + 'm', -meio, meiaParede + 10);
                     }
-                    ctx.restore();
-
-                } else if (t.tipo === 'corredor') {
-                    // DESENHO ARQUITETÔNICO DE CORREDOR / PASSAGEM
-                    ctx.save();
-                    ctx.translate(tx, ty);
-                    if (t.orientacao === 'V') ctx.rotate(Math.PI / 2);
-
-                    // Recorte sutil de passagem
-                    ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-                    ctx.fillRect(-14, -3, 28, 6);
-
-                    // Guias de passagem em ciano
-                    ctx.strokeStyle = '#38bdf8';
+                } else {
+                    // Corredor / vão livre: só o vão, com linha tracejada de passagem
+                    const cor = t.tipo === 'corredor' ? '#38bdf8' : '#10b981';
+                    ctx.strokeStyle = cor;
                     ctx.lineWidth = 1.6;
-                    ctx.setLineDash([3, 2]);
                     ctx.beginPath();
-                    ctx.moveTo(-14, -2); ctx.lineTo(-14, 2);
-                    ctx.moveTo(14, -2); ctx.lineTo(14, 2);
-                    ctx.moveTo(-12, 0); ctx.lineTo(12, 0);
+                    ctx.moveTo(-meio, -meiaParede); ctx.lineTo(-meio, meiaParede);
+                    ctx.moveTo(meio, -meiaParede); ctx.lineTo(meio, meiaParede);
                     ctx.stroke();
-                    ctx.setLineDash([]);
-
-                    if (state.exibirRotulosTransicoesTexto) {
-                        ctx.fillStyle = '#38bdf8';
-                        ctx.font = 'bold 8px sans-serif';
-                        ctx.fillText('CORREDOR', -20, 10);
-                    }
-                    ctx.restore();
-
-                } else if (t.tipo === 'vao_livre') {
-                    // DESENHO ARQUITETÔNICO DE VÃO LIVRE
-                    ctx.save();
-                    ctx.translate(tx, ty);
-                    if (t.orientacao === 'V') ctx.rotate(Math.PI / 2);
-
-                    // Recorte do vão
-                    ctx.fillStyle = '#0f172a';
-                    ctx.fillRect(-15, -3, 30, 6);
-
-                    // Traço de abertura (tracejado fino verde esmeralda)
-                    ctx.strokeStyle = '#10b981';
-                    ctx.lineWidth = 1.8;
                     ctx.setLineDash([3, 3]);
                     ctx.beginPath();
-                    ctx.moveTo(-15, 0);
-                    ctx.lineTo(15, 0);
+                    ctx.moveTo(-meio, 0); ctx.lineTo(meio, 0);
                     ctx.stroke();
                     ctx.setLineDash([]);
-
-                    // Batentes discretos
-                    ctx.strokeStyle = '#34d399';
-                    ctx.lineWidth = 2;
-                    ctx.beginPath();
-                    ctx.moveTo(-15, -3); ctx.lineTo(-15, 3);
-                    ctx.moveTo(15, -3); ctx.lineTo(15, 3);
-                    ctx.stroke();
-
                     if (state.exibirRotulosTransicoesTexto) {
-                        ctx.fillStyle = '#10b981';
+                        ctx.fillStyle = cor;
                         ctx.font = 'bold 8px sans-serif';
-                        ctx.fillText('VÃO LIVRE', -20, 10);
+                        ctx.fillText(t.tipo === 'corredor' ? 'CORREDOR' : 'VÃO LIVRE', -meio, meiaParede + 10);
                     }
-                    ctx.restore();
-
-                } else if (t.tipo === 'parede') {
-                    // PAREDE (ALVENARIA DIVISÓRIA):
-                    // Em planta baixa limpa, a parede contínua é apenas a costura divisória sólida
-                    ctx.save();
-                    ctx.translate(tx, ty);
-                    if (t.orientacao === 'V') ctx.rotate(Math.PI / 2);
-
-                    ctx.strokeStyle = '#64748b';
-                    ctx.lineWidth = 2.5;
-                    ctx.beginPath();
-                    ctx.moveTo(-15, 0);
-                    ctx.lineTo(15, 0);
-                    ctx.stroke();
-
-                    if (state.exibirRotulosTransicoesTexto) {
-                        ctx.fillStyle = '#94a3b8';
-                        ctx.font = 'bold 8px monospace';
-                        ctx.textAlign = 'center';
-                        ctx.fillText('PAREDE', 0, 10);
-                    }
-                    ctx.restore();
                 }
+                ctx.restore();
             });
 
             // Linhas guias magnéticas dinâmicas (exibidas enquanto o cômodo é arrastado com o ímã)
@@ -25149,6 +25195,173 @@
             mostrarBarra(state.abaAtiva || 'planta');
         }, 1500);
     });
+})();
+</script>
+
+<script>
+// =====================================================================
+// ABERTURAS (Leo - Etapa 3): inserir, arrastar e editar janelas/portas
+// + Janela / + Porta  -> toque numa parede para colocar
+// Arrastar a abertura -> desliza ao longo da parede
+// Duplo toque na abertura -> mudar largura ou remover
+// =====================================================================
+(function () {
+    'use strict';
+    let arrasto = null;
+
+    function coordCanvas(canvas, e) {
+        const r = canvas.getBoundingClientRect();
+        return { x: (e.clientX - r.left) * (canvas.width / r.width), y: (e.clientY - r.top) * (canvas.height / r.height) };
+    }
+    function comodosDoAndar() { return state.comodos.filter(c => c.pavimentoId === state.pavimentoAtivoId); }
+    function redesenhar() { desenharCAD(); desenharInstalacoes(); }
+    function salvar() { if (typeof reconstruirCena3D === 'function') reconstruirCena3D(); salvarProjetoSilencioso(); }
+
+    // Parede mais próxima do toque
+    function paredeMaisProxima(x, y, tol) {
+        let melhor = null;
+        comodosDoAndar().forEach(c => {
+            const w = c.largura * state.escala, h = c.comprimento * state.escala;
+            const lados = [
+                { lado: 'top', d: Math.abs(y - c.y), dentro: x >= c.x && x <= c.x + w, t: (x - c.x) / w },
+                { lado: 'bottom', d: Math.abs(y - (c.y + h)), dentro: x >= c.x && x <= c.x + w, t: (x - c.x) / w },
+                { lado: 'left', d: Math.abs(x - c.x), dentro: y >= c.y && y <= c.y + h, t: (y - c.y) / h },
+                { lado: 'right', d: Math.abs(x - (c.x + w)), dentro: y >= c.y && y <= c.y + h, t: (y - c.y) / h }
+            ];
+            lados.forEach(l => {
+                if (l.dentro && l.d <= tol && (!melhor || l.d < melhor.d)) melhor = { ...l, comodo: c };
+            });
+        });
+        return melhor;
+    }
+
+    function aberturaNoPonto(x, y) {
+        const porId = {};
+        comodosDoAndar().forEach(c => { porId[String(c.id)] = c; });
+        let achou = null;
+        (state.aberturas || []).forEach(ab => {
+            const c = porId[String(ab.comodoId)];
+            if (!c) return;
+            const g = geometriaAbertura(ab, c);
+            const ao = g.vertical ? Math.abs(y - g.cy) : Math.abs(x - g.cx);   // ao longo da parede
+            const at = g.vertical ? Math.abs(x - g.cx) : Math.abs(y - g.cy);   // atravessando a parede
+            if (ao <= g.meio + 4 && at <= 16) achou = { ab, c, g };
+        });
+        return achou;
+    }
+
+    window.iniciarInsercaoAbertura = function (tipo) {
+        state.modoInserirAbertura = tipo;
+        mostrarNotificacaoToast(tipo === 'janela' ? '🪟 Toque numa parede para colocar a janela' : '🚪 Toque numa parede para colocar a porta', 'sucesso');
+    };
+
+    function aoPressionar(e) {
+        const canvas = e.currentTarget;
+        const p = coordCanvas(canvas, e);
+        // 1. Modo de inserção
+        if (state.modoInserirAbertura) {
+            const par = paredeMaisProxima(p.x, p.y, 28);
+            if (!par) { mostrarNotificacaoToast('Toque mais perto de uma parede.', 'aviso'); e.stopImmediatePropagation(); e.preventDefault(); return; }
+            const tipo = state.modoInserirAbertura;
+            const ab = { id: 'ab_' + Date.now(), comodoId: par.comodo.id, lado: par.lado, t: Math.max(0, Math.min(1, par.t)), largura: tipo === 'janela' ? 1.20 : 0.80, tipo };
+            state.aberturas = state.aberturas || [];
+            state.aberturas.push(ab);
+            state.aberturaSelecionadaId = ab.id;
+            state.modoInserirAbertura = null;
+            redesenhar(); salvar();
+            mostrarNotificacaoToast((tipo === 'janela' ? 'Janela' : 'Porta') + ' colocada. Arraste para ajustar, duplo toque para editar.', 'sucesso');
+            e.stopImmediatePropagation(); e.preventDefault();
+            return;
+        }
+        // 2. Tocou numa abertura: seleciona e começa a arrastar
+        const alvo = aberturaNoPonto(p.x, p.y);
+        if (alvo) {
+            state.aberturaSelecionadaId = alvo.ab.id;
+            arrasto = { ab: alvo.ab, c: alvo.c, canvas, moveu: false };
+            redesenhar();
+            e.stopImmediatePropagation(); e.preventDefault();
+            return;
+        }
+        if (state.aberturaSelecionadaId) { state.aberturaSelecionadaId = null; redesenhar(); }
+    }
+
+    function aoMover(e) {
+        if (!arrasto || e.currentTarget !== arrasto.canvas) return;
+        const p = coordCanvas(arrasto.canvas, e);
+        const c = arrasto.c;
+        const vertical = (arrasto.ab.lado === 'left' || arrasto.ab.lado === 'right');
+        const comp = (vertical ? c.comprimento : c.largura) * state.escala;
+        const t = vertical ? (p.y - c.y) / comp : (p.x - c.x) / comp;
+        arrasto.ab.t = Math.max(0, Math.min(1, t));
+        arrasto.moveu = true;
+        redesenhar();
+        e.stopImmediatePropagation();
+    }
+
+    function aoSoltar(e) {
+        if (!arrasto) return;
+        const moveu = arrasto.moveu;
+        arrasto = null;
+        if (moveu) salvar();
+        e.stopImmediatePropagation();
+    }
+
+    function aoDuploClique(e) {
+        const canvas = e.currentTarget;
+        const p = coordCanvas(canvas, e);
+        const alvo = aberturaNoPonto(p.x, p.y);
+        if (!alvo) return;
+        e.stopImmediatePropagation(); e.preventDefault();
+        editarAbertura(alvo.ab);
+    }
+
+    function editarAbertura(ab) {
+        const nome = ab.tipo === 'janela' ? 'janela' : 'porta';
+        const r = prompt(`Largura da ${nome} em metros (ex: 1.20).\nDigite 0 para remover.`, (ab.largura || 1.2).toFixed(2));
+        if (r === null) return;
+        const v = parseFloat(String(r).replace(',', '.'));
+        if (isNaN(v)) return;
+        if (v <= 0) {
+            state.aberturas = (state.aberturas || []).filter(a => a.id !== ab.id);
+            state.aberturaSelecionadaId = null;
+            mostrarNotificacaoToast(nome[0].toUpperCase() + nome.slice(1) + ' removida.', 'sucesso');
+        } else {
+            ab.largura = Math.max(0.4, Math.min(6, v));
+        }
+        redesenhar(); salvar();
+    }
+    window.editarAberturaSelecionada = function () {
+        const ab = (state.aberturas || []).find(a => a.id === state.aberturaSelecionadaId);
+        if (ab) editarAbertura(ab);
+    };
+
+    function ligar(id) {
+        const cv = document.getElementById(id);
+        if (!cv || cv.dataset.aberturasLigadas) return;
+        cv.dataset.aberturasLigadas = '1';
+        cv.addEventListener('mousedown', aoPressionar, true);
+        cv.addEventListener('mousemove', aoMover, true);
+        cv.addEventListener('mouseup', aoSoltar, true);
+        cv.addEventListener('dblclick', aoDuploClique, true);
+    }
+    // Duplo toque no celular sobre a abertura
+    let ultimoToque = 0;
+    function ligarToque(id) {
+        const cv = document.getElementById(id);
+        if (!cv) return;
+        cv.addEventListener('touchstart', (e) => {
+            if (e.touches.length !== 1) return;
+            const agora = Date.now();
+            const t = e.touches[0];
+            const p = coordCanvas(cv, t);
+            if (agora - ultimoToque < 320) {
+                const alvo = aberturaNoPonto(p.x, p.y);
+                if (alvo) { e.stopImmediatePropagation(); e.preventDefault(); ultimoToque = 0; arrasto = null; editarAbertura(alvo.ab); return; }
+            }
+            ultimoToque = agora;
+        }, { capture: true, passive: false });
+    }
+    ['cadCanvas', 'instalacoesCanvas'].forEach(id => { ligar(id); ligarToque(id); });
 })();
 </script>
 
