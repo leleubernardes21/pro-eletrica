@@ -26801,6 +26801,12 @@
     }
     const origTrocar = window.trocarAba;
     window.trocarAba = function () { const r = origTrocar.apply(this, arguments); if (state.abaAtiva === 'visualizacao3d') setTimeout(configurar, 300); return r; };
+    // "Resetar câmera" do app passa a enquadrar a construção com transição suave
+    const origReset = window.resetarCamera3D;
+    window.resetarCamera3D = function () {
+        if (configurado && configurado === ctrl()) { setTimeout(() => vista3D('iso'), 60); return; }
+        return origReset && origReset.apply(this, arguments);
+    };
     setInterval(() => { if (state.abaAtiva === 'visualizacao3d') configurar(); }, 1500);
 })();
 </script>
