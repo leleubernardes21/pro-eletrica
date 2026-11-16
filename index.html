@@ -1045,10 +1045,13 @@
                                 <i class="fa-solid fa-arrows-up-down-left-right"></i> Mover Cômodos
                             </button>
                             <button id="btnToolCurvasEletroduto" class="px-3 py-1.5 rounded-lg font-bold text-xs bg-slate-900 hover:bg-slate-850 text-sky-400 border border-slate-800 flex items-center gap-1.5" title="Curvar / desviar eletrodutos">
-                                <i class="fa-solid fa-bezier-curve"></i> Curvar Eletrodutos
+                                <i class="fa-solid fa-bezier-curve"></i> Mover Conduítes
                             </button>
-                            <button onclick="resetarTodasCurvasEletrodutos()" class="px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-amber-400 bg-slate-900 border border-slate-800 text-xs" title="Redefinir traçados manuais">
-                                <i class="fa-solid fa-rotate-left"></i> Redefinir
+                            <button onclick="tracarEletrodutosEmL()" class="px-2.5 py-1.5 rounded-lg text-sky-300 hover:text-white bg-slate-900 border border-slate-800 text-xs" title="Traçar todos os eletrodutos do andar em L (ângulo reto)">
+                                <i class="fa-solid fa-turn-down"></i> Traçar em L
+                            </button>
+                            <button onclick="resetarTodasCurvasEletrodutos()" class="px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-amber-400 bg-slate-900 border border-slate-800 text-xs" title="Voltar todos os eletrodutos para linha reta">
+                                <i class="fa-solid fa-rotate-left"></i> Linha reta
                             </button>
                         </div>
 
@@ -7683,6 +7686,11 @@
                     const now = Date.now();
                     if (now - lastTouchTime < 320) {
                         // Trata como Double Click
+                        if (canvasId === 'instalacoesCanvas' && removerWaypointProximo(mx, my)) {
+                            e.preventDefault();
+                            lastTouchTime = 0;
+                            return;
+                        }
                         const comodosAndar = state.comodos.filter(c => c.pavimentoId === state.pavimentoAtivoId);
                         for (let c of comodosAndar) {
                             const cw = c.largura * state.escala;
@@ -8160,7 +8168,7 @@
                 if (btnMoverComodos) btnMoverComodos.className = 'px-3 py-1.5 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 flex items-center gap-1.5';
                 btnCurvas.className = 'px-3 py-1.5 rounded-xl font-bold text-xs bg-sky-500 text-slate-950 flex items-center gap-1.5 shadow';
                 btnMover.className = 'px-3 py-1.5 rounded-xl font-bold text-xs bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 flex items-center gap-1.5';
-                if (txtDica) txtDica.innerHTML = 'Clique na linha tracejada do eletroduto para inserir uma curva e arraste a alça azul!';
+                if (txtDica) txtDica.innerHTML = 'Arraste o <b>+</b> no meio de um eletroduto para criar uma curva. Arraste a bolinha azul para mover. Duplo toque na bolinha remove a curva. Ela gruda em 90° perto do alinhamento.';
                 desenharInstalacoes();
             });
 
@@ -8168,8 +8176,62 @@
             btnAddTue.addEventListener('click', () => abrirModalPontoNovo('TUE'));
         }
 
+        // Pontos vizinhos de uma curva (QDT, curva anterior/seguinte, luminária do cômodo)
+        function obterVizinhosWaypoint(circNum, index) {
+            const wps = state.eletrodutoWaypoints[circNum] || [];
+            const comodosAndar = state.comodos.filter(c => c.pavimentoId === state.pavimentoAtivoId);
+            const c = comodosAndar[circNum - 1];
+            const qdt = { x: state.qdtPos.x + state.qdtPos.w / 2, y: state.qdtPos.y + state.qdtPos.h / 2 };
+            const luz = c ? { x: c.x + (c.largura * state.escala) / 2, y: c.y + (c.comprimento * state.escala) / 2 } : null;
+            const rota = [qdt, ...wps, luz].filter(Boolean);
+            const i = index + 1;
+            return [rota[i - 1], rota[i + 1]].filter(Boolean);
+        }
+
+        // Remove a curva mais próxima do toque (só no modo "Mover Conduítes")
+        function removerWaypointProximo(mx, my) {
+            if (state.ferramentaInstalacoes !== 'curvas_eletroduto') return false;
+            for (const circNum in state.eletrodutoWaypoints) {
+                const wps = state.eletrodutoWaypoints[circNum] || [];
+                for (let i = 0; i < wps.length; i++) {
+                    if (Math.hypot(mx - wps[i].x, my - wps[i].y) <= 20) {
+                        wps.splice(i, 1);
+                        desenharCAD();
+                        desenharInstalacoes();
+                        atualizarTabelas();
+                        reconstruirCena3D();
+                        salvarProjetoSilencioso();
+                        mostrarNotificacaoToast('Curva removida.', 'sucesso');
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        // Traça todos os eletrodutos do andar em "L" (horizontal e depois vertical), como na obra
+        function tracarEletrodutosEmL() {
+            const comodosAndar = state.comodos.filter(c => c.pavimentoId === state.pavimentoAtivoId);
+            const qdtCx = state.qdtPos.x + state.qdtPos.w / 2;
+            const qdtCy = state.qdtPos.y + state.qdtPos.h / 2;
+            comodosAndar.forEach((c, idx) => {
+                const luzX = c.x + (c.largura * state.escala) / 2;
+                const luzY = c.y + (c.comprimento * state.escala) / 2;
+                const alinhado = Math.abs(luzX - qdtCx) < 4 || Math.abs(luzY - qdtCy) < 4;
+                state.eletrodutoWaypoints[idx + 1] = alinhado ? [] : [{ x: luzX, y: qdtCy }];
+            });
+            desenharCAD();
+            desenharInstalacoes();
+            atualizarTabelas();
+            reconstruirCena3D();
+            salvarProjetoSilencioso();
+            mostrarNotificacaoToast('Eletrodutos traçados em L. Ajuste arrastando as curvas.', 'sucesso');
+        }
+
         function resetarTodasCurvasEletrodutos() {
             state.eletrodutoWaypoints = {};
+            desenharCAD();
+            if (typeof salvarProjetoSilencioso === 'function') salvarProjetoSilencioso();
             desenharInstalacoes();
             reconstruirCena3D();
             atualizarTabelas();
@@ -10723,7 +10785,7 @@
                         for (let i = 0; i < wps.length; i++) {
                             const wp = wps[i];
                             const dist = Math.sqrt(Math.pow(mx - wp.x, 2) + Math.pow(my - wp.y, 2));
-                            if (dist <= 12) {
+                            if (dist <= 20) {
                                 state.arrastandoInstalacoes = { tipo: 'waypoint', circNum: parseInt(circNum, 10), index: i };
                                 state.offsetArrasto = { x: mx - wp.x, y: my - wp.y };
                                 return;
@@ -10734,29 +10796,29 @@
                     const qdtCx = state.qdtPos.x + state.qdtPos.w / 2;
                     const qdtCy = state.qdtPos.y + state.qdtPos.h / 2;
 
+                    // Procura o trecho de eletroduto mais próximo do toque (um só) e cria a curva nele
+                    let melhorTrecho = null;
                     comodosAndar.forEach((c, idx) => {
                         const luzX = c.x + (c.largura * state.escala) / 2;
                         const luzY = c.y + (c.comprimento * state.escala) / 2;
                         const circNum = idx + 1;
-
                         const wps = state.eletrodutoWaypoints[circNum] || [];
                         const pontosRota = [{ x: qdtCx, y: qdtCy }, ...wps, { x: luzX, y: luzY }];
-
                         for (let s = 0; s < pontosRota.length - 1; s++) {
-                            const p1 = pontosRota[s];
-                            const p2 = pontosRota[s + 1];
-                            const distSeg = distPontoParaSegmento(mx, my, p1.x, p1.y, p2.x, p2.y);
-                            if (distSeg <= 15) {
-                                if (!state.eletrodutoWaypoints[circNum]) state.eletrodutoWaypoints[circNum] = [];
-                                state.eletrodutoWaypoints[circNum].splice(s, 0, { x: mx, y: my });
-                                state.arrastandoInstalacoes = { tipo: 'waypoint', circNum, index: s };
-                                state.offsetArrasto = { x: 0, y: 0 };
-                                desenharInstalacoes();
-                                atualizarTabelas();
-                                return;
-                            }
+                            const d = distPontoParaSegmento(mx, my, pontosRota[s].x, pontosRota[s].y, pontosRota[s + 1].x, pontosRota[s + 1].y);
+                            if (d <= 20 && (!melhorTrecho || d < melhorTrecho.d)) melhorTrecho = { d, circNum, s };
                         }
                     });
+                    if (melhorTrecho) {
+                        const { circNum, s } = melhorTrecho;
+                        if (!state.eletrodutoWaypoints[circNum]) state.eletrodutoWaypoints[circNum] = [];
+                        state.eletrodutoWaypoints[circNum].splice(s, 0, { x: mx, y: my });
+                        state.arrastandoInstalacoes = { tipo: 'waypoint', circNum, index: s };
+                        state.offsetArrasto = { x: 0, y: 0 };
+                        desenharInstalacoes();
+                        atualizarTabelas();
+                        return;
+                    }
                 }
             
                 // Clicou com botão esquerdo no espaço vazio: mover livremente a representação (Pan)
@@ -10995,8 +11057,17 @@
                 } else if (arr.tipo === 'waypoint') {
                     const wp = state.eletrodutoWaypoints[arr.circNum][arr.index];
                     if (wp) {
-                        wp.x = mx - state.offsetArrasto.x;
-                        wp.y = my - state.offsetArrasto.y;
+                        let nx = mx - state.offsetArrasto.x;
+                        let ny = my - state.offsetArrasto.y;
+                        const viz = obterVizinhosWaypoint(arr.circNum, arr.index);
+                        const TOL = 12;
+                        state.linhasGuiaMagnetica = [];
+                        viz.forEach(v => {
+                            if (Math.abs(nx - v.x) <= TOL) { nx = v.x; state.linhasGuiaMagnetica.push({ tipo: 'V', x: v.x, y1: Math.min(v.y, ny) - 30, y2: Math.max(v.y, ny) + 30 }); }
+                            if (Math.abs(ny - v.y) <= TOL) { ny = v.y; state.linhasGuiaMagnetica.push({ tipo: 'H', y: v.y, x1: Math.min(v.x, nx) - 30, x2: Math.max(v.x, nx) + 30 }); }
+                        });
+                        wp.x = nx;
+                        wp.y = ny;
                         desenharInstalacoes();
                         atualizarTabelas();
                     }
@@ -11038,6 +11109,9 @@
                 const scaleY = canvas.height / rect.height;
                 const mx = (e.clientX - rect.left) * scaleX;
                 const my = (e.clientY - rect.top) * scaleY;
+
+                // 0. No modo de conduítes, duplo clique numa curva remove a curva
+                if (removerWaypointProximo(mx, my)) return;
 
                 // 1. Verifica se clicou diretamente sobre um ponto existente
                 const pontosAndar = state.pontosEletricos.filter(p => p.pavimentoId === state.pavimentoAtivoId);
@@ -13610,15 +13684,17 @@
 
             const comodosAndar = state.comodos.filter(c => c.pavimentoId === state.pavimentoAtivoId);
 
-            // 4. Eletrodutos dos circuitos do pavimento ativo
-            comodosAndar.forEach(c => {
+            // 4. Eletrodutos dos circuitos do pavimento ativo (seguem as curvas feitas na aba Elétrica)
+            comodosAndar.forEach((c, idxC) => {
                 const luzX = c.x + (c.largura * state.escala) / 2;
                 const luzY = c.y + (c.comprimento * state.escala) / 2;
+                const wpsC = (state.eletrodutoWaypoints && state.eletrodutoWaypoints[idxC + 1]) || [];
                 ctx.strokeStyle = '#f59e0b';
                 ctx.lineWidth = 2;
                 ctx.setLineDash([6, 4]);
                 ctx.beginPath();
                 ctx.moveTo(qdtCx, qdtCy);
+                wpsC.forEach(wp => ctx.lineTo(wp.x, wp.y));
                 ctx.lineTo(luzX, luzY);
                 ctx.stroke();
                 ctx.setLineDash([]);
@@ -14204,9 +14280,26 @@
                     }
 
                     if (state.ferramentaInstalacoes === 'curvas_eletroduto') {
+                        // Alça "+" no meio de cada trecho: toque e arraste para criar uma curva
+                        for (let sI = 0; sI < pontosRota.length - 1; sI++) {
+                            const mxS = (pontosRota[sI].x + pontosRota[sI + 1].x) / 2;
+                            const myS = (pontosRota[sI].y + pontosRota[sI + 1].y) / 2;
+                            ctx.beginPath();
+                            ctx.arc(mxS, myS, 6, 0, 2 * Math.PI);
+                            ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+                            ctx.fill();
+                            ctx.strokeStyle = ehPassagemChao ? '#f97316' : '#38bdf8';
+                            ctx.lineWidth = 1.5;
+                            ctx.setLineDash([]);
+                            ctx.stroke();
+                            ctx.beginPath();
+                            ctx.moveTo(mxS - 3, myS); ctx.lineTo(mxS + 3, myS);
+                            ctx.moveTo(mxS, myS - 3); ctx.lineTo(mxS, myS + 3);
+                            ctx.stroke();
+                        }
                         wps.forEach(wp => {
                             ctx.beginPath();
-                            ctx.arc(wp.x, wp.y, 6.5, 0, 2 * Math.PI);
+                            ctx.arc(wp.x, wp.y, 8, 0, 2 * Math.PI);
                             ctx.fillStyle = ehPassagemChao ? '#f97316' : '#38bdf8';
                             ctx.fill();
                             ctx.strokeStyle = '#ffffff';
