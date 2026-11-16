@@ -5671,6 +5671,7 @@
                 regimeImovel: state.regimeImovel || 'mesmo_imovel',
                 unidadeQdtAtivaId: state.unidadeQdtAtivaId || 'todos',
                 qdtPos: { ...state.qdtPos },
+                qdtAtivo: state.qdtAtivo !== false,
                 prumadaPos: { ...state.prumadaPos },
                 prumadaAtiva: state.prumadaAtiva !== false,
                 alimentacaoExterna: { ...state.alimentacaoExterna },
@@ -5745,6 +5746,7 @@
             if (snapshot.regimeImovel) state.regimeImovel = snapshot.regimeImovel;
             if (snapshot.unidadeQdtAtivaId) state.unidadeQdtAtivaId = snapshot.unidadeQdtAtivaId;
             if (snapshot.qdtPos) state.qdtPos = { ...snapshot.qdtPos };
+            state.qdtAtivo = snapshot.qdtAtivo !== false;
             if (snapshot.prumadaPos) state.prumadaPos = { ...snapshot.prumadaPos };
             if (snapshot.prumadaAtiva !== undefined) state.prumadaAtiva = snapshot.prumadaAtiva;
             if (snapshot.esquemaAterramento) state.esquemaAterramento = snapshot.esquemaAterramento;
@@ -7105,6 +7107,7 @@
             if (state.alimentacaoExterna) {
                 state.alimentacaoExterna.x = Math.round(pivotX + (state.alimentacaoExterna.x - pivotX) * ratio);
                 state.alimentacaoExterna.y = Math.round(pivotY + (state.alimentacaoExterna.y - pivotY) * ratio);
+                (state.alimentacaoExterna.wps || []).forEach(w => { w.x = Math.round(pivotX + (w.x - pivotX) * ratio); w.y = Math.round(pivotY + (w.y - pivotY) * ratio); });
             }
 
             // 5. AJUSTA LINHAS A MÃO LIVRE
@@ -7115,6 +7118,9 @@
                             p.x = Math.round(pivotX + (p.x - pivotX) * ratio);
                             p.y = Math.round(pivotY + (p.y - pivotY) * ratio);
                         });
+                    } else if (linha && linha.tipo === 'texto') {
+                        linha.x = Math.round(pivotX + (linha.x - pivotX) * ratio);
+                        linha.y = Math.round(pivotY + (linha.y - pivotY) * ratio);
                     }
                 });
             }
@@ -7202,6 +7208,7 @@
             if (state.alimentacaoExterna) {
                 state.alimentacaoExterna.x += dx;
                 state.alimentacaoExterna.y += dy;
+                (state.alimentacaoExterna.wps || []).forEach(w => { w.x += dx; w.y += dy; });
             }
 
             // 6. Terreno (Lote)
@@ -7218,6 +7225,9 @@
                             p.x += dx;
                             p.y += dy;
                         });
+                    } else if (linha && linha.tipo === 'texto') {
+                        linha.x += dx;
+                        linha.y += dy;
                     }
                 });
             }
@@ -13742,30 +13752,8 @@
             const alimCy = state.alimentacaoExterna.y + state.alimentacaoExterna.h / 2;
 
             // 3. Alimentador Geral (apenas no térreo)
-            if (state.pavimentoAtivoId === 'terreo' && state.alimentacaoExterna && state.alimentacaoExterna.ativa !== false) {
-                ctx.strokeStyle = '#10b981';
-                ctx.lineWidth = 3.5;
-                ctx.setLineDash([8, 4]);
-                ctx.beginPath();
-                ctx.moveTo(alimCx, alimCy);
-                ctx.lineTo(qdtCx, qdtCy);
-                ctx.stroke();
-                ctx.setLineDash([]);
-
-                const distPxAlim = Math.sqrt(Math.pow(qdtCx - alimCx, 2) + Math.pow(qdtCy - alimCy, 2));
-                const metrosAlimCad = (distPxAlim / state.escala) + 3.0;
-                const distAlimReal = state.alimentacaoExterna.distanciaManual || Math.ceil(metrosAlimCad);
-
-                const midAlimX = (alimCx + qdtCx) / 2;
-                const midAlimY = (alimCy + qdtCy) / 2;
-                ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
-                ctx.fillRect(midAlimX - 45, midAlimY - 10, 90, 20);
-                ctx.strokeStyle = '#10b981';
-                ctx.lineWidth = 1;
-                ctx.strokeRect(midAlimX - 45, midAlimY - 10, 90, 20);
-                ctx.fillStyle = '#34d399';
-                ctx.font = 'bold 9px monospace';
-                ctx.fillText(`⚡ ${distAlimReal}m (Alimentador)`, midAlimX - 40, midAlimY + 4);
+            if (state.pavimentoAtivoId === 'terreo' && state.alimentacaoExterna && state.alimentacaoExterna.ativa !== false && qdtVisivel()) {
+                desenharLinhaAlimentador(ctx, true);
             }
 
             const comodosAndar = state.comodos.filter(c => c.pavimentoId === state.pavimentoAtivoId);
@@ -13774,6 +13762,7 @@
             comodosAndar.forEach((c, idxC) => {
                 const luzX = c.x + (c.largura * state.escala) / 2;
                 const luzY = c.y + (c.comprimento * state.escala) / 2;
+                if (!qdtVisivel()) return;
                 const wpsC = (state.eletrodutoWaypoints && state.eletrodutoWaypoints[idxC + 1]) || [];
                 ctx.strokeStyle = '#f59e0b';
                 ctx.lineWidth = 2;
@@ -13890,6 +13879,7 @@
             desenharEscadas(ctx);
 
             // 8. QDT
+            if (qdtVisivel()) {
             ctx.fillStyle = '#ef4444';
             ctx.fillRect(state.qdtPos.x, state.qdtPos.y, state.qdtPos.w, state.qdtPos.h);
             ctx.strokeStyle = '#ffffff';
@@ -13898,6 +13888,7 @@
             ctx.fillStyle = '#ffffff';
             ctx.font = 'bold 10px sans-serif';
             ctx.fillText(state.pavimentoAtivoId === 'terreo' ? 'QDT-G' : 'QDT-P', state.qdtPos.x + 4, state.qdtPos.y + 17);
+            }
 
             // 9. Símbolo Técnico de Prumada Elétrica (Shaft Vertical)
             if (state.prumadaAtiva !== false) {
@@ -13976,7 +13967,7 @@
                     circuito: 'Entrada Concessionária',
                     detalhes: 'Ramal Bifásico/Trifásico • NBR 5410',
                     corHover: '#10b981',
-                    pts: [{ x: alimCx, y: alimCy }, { x: qdtCx, y: qdtCy }]
+                    pts: rotaAlimentador()
                 });
             }
 
@@ -14210,15 +14201,8 @@
             const alimCx = state.alimentacaoExterna.x + state.alimentacaoExterna.w / 2;
             const alimCy = state.alimentacaoExterna.y + state.alimentacaoExterna.h / 2;
 
-            if (state.pavimentoAtivoId === 'terreo' && state.alimentacaoExterna && state.alimentacaoExterna.ativa !== false) {
-                ctx.strokeStyle = '#10b981';
-                ctx.lineWidth = 3.5;
-                ctx.setLineDash([8, 4]);
-                ctx.beginPath();
-                ctx.moveTo(alimCx, alimCy);
-                ctx.lineTo(qdtCx, qdtCy);
-                ctx.stroke();
-                ctx.setLineDash([]);
+            if (state.pavimentoAtivoId === 'terreo' && state.alimentacaoExterna && state.alimentacaoExterna.ativa !== false && qdtVisivel()) {
+                desenharLinhaAlimentador(ctx, false);
             }
 
             const comodosAndar = state.comodos.filter(c => c.pavimentoId === state.pavimentoAtivoId);
@@ -14330,7 +14314,7 @@
                     ? obterStatusVisibilidadeCircuito(`comodo_${circNum}`, idx)
                     : { visivel: true, destacado: false, opacidade: 1.0 };
 
-                if (statusMain.visivel) {
+                if (statusMain.visivel && qdtVisivel()) {
                     ctx.save();
                     ctx.globalAlpha = statusMain.opacidade;
 
@@ -14833,6 +14817,7 @@
             });
 
             // QDT e Prumada
+            if (qdtVisivel()) {
             ctx.fillStyle = '#ef4444';
             ctx.fillRect(state.qdtPos.x, state.qdtPos.y, state.qdtPos.w, state.qdtPos.h);
             ctx.strokeStyle = '#ffffff';
@@ -14841,6 +14826,7 @@
             ctx.fillStyle = '#ffffff';
             ctx.font = 'bold 10px sans-serif';
             ctx.fillText(state.pavimentoAtivoId === 'terreo' ? 'QDT-G' : 'QDT-P', state.qdtPos.x + 4, state.qdtPos.y + 17);
+            }
 
             // Prumada
             if (state.prumadaAtiva !== false) {
@@ -15117,6 +15103,51 @@
             ctx.arc(hx, hy, folha, a1, a2);
             ctx.stroke();
             ctx.setLineDash([]);
+        }
+
+        // Rota do alimentador: alimentação externa -> curvas -> QDT (pixels)
+        function rotaAlimentador() {
+            const al = state.alimentacaoExterna, q = state.qdtPos;
+            return [{ x: al.x + al.w / 2, y: al.y + al.h / 2 }, ...((al.wps) || []), { x: q.x + q.w / 2, y: q.y + q.h / 2 }];
+        }
+        function comprimentoAlimentadorPx() {
+            const r = rotaAlimentador();
+            let t = 0;
+            for (let i = 0; i < r.length - 1; i++) t += Math.hypot(r[i + 1].x - r[i].x, r[i + 1].y - r[i].y);
+            return t;
+        }
+        function qdtVisivel() { return state.qdtAtivo !== false; }
+        function desenharLinhaAlimentador(ctx, comRotulo) {
+            const r = rotaAlimentador();
+            ctx.save();
+            ctx.strokeStyle = '#10b981';
+            ctx.lineWidth = 3.5;
+            ctx.setLineDash([8, 4]);
+            ctx.beginPath();
+            r.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+            ctx.stroke();
+            ctx.setLineDash([]);
+            // curvas do alimentador (alças)
+            (state.alimentacaoExterna.wps || []).forEach(w => {
+                ctx.beginPath(); ctx.arc(w.x, w.y, 6, 0, Math.PI * 2);
+                ctx.fillStyle = '#10b981'; ctx.fill();
+                ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5; ctx.stroke();
+            });
+            if (comRotulo) {
+                const metros = state.alimentacaoExterna.distanciaManual || Math.ceil(comprimentoAlimentadorPx() / state.escala + 3.0);
+                // rótulo no meio do trecho mais longo
+                let mi = 0, ml = -1;
+                for (let i = 0; i < r.length - 1; i++) { const l = Math.hypot(r[i + 1].x - r[i].x, r[i + 1].y - r[i].y); if (l > ml) { ml = l; mi = i; } }
+                const mx = (r[mi].x + r[mi + 1].x) / 2, my = (r[mi].y + r[mi + 1].y) / 2;
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+                ctx.fillRect(mx - 45, my - 10, 90, 20);
+                ctx.strokeStyle = '#10b981'; ctx.lineWidth = 1;
+                ctx.strokeRect(mx - 45, my - 10, 90, 20);
+                ctx.fillStyle = '#34d399';
+                ctx.font = 'bold 9px monospace';
+                ctx.fillText(`⚡ ${metros}m (Alimentador)`, mx - 40, my + 4);
+            }
+            ctx.restore();
         }
 
         function desenharTransicoes(ctx) {
@@ -18370,7 +18401,7 @@
 
             const alimCx = state.alimentacaoExterna.x + state.alimentacaoExterna.w / 2;
             const alimCy = state.alimentacaoExterna.y + state.alimentacaoExterna.h / 2;
-            const distPxAlim = Math.sqrt(Math.pow(qdtCx - alimCx, 2) + Math.pow(qdtCy - alimCy, 2));
+            const distPxAlim = comprimentoAlimentadorPx();
             const distCadAlim = Math.max(4, Math.ceil((distPxAlim / state.escala) + 3.0));
             const distAlimUsada = (ehUnidadeEspecifica && imovelAtivo && imovelAtivo.distancia) ? imovelAtivo.distancia : ((state.alimentacaoExterna && state.alimentacaoExterna.distanciaManual) || distCadAlim);
 
@@ -21029,7 +21060,7 @@
             const alimCx = alimX + alimW / 2;
             const alimCy = alimY + alimH / 2;
 
-            const distPxAlim = Math.sqrt(Math.pow(qdtCx - alimCx, 2) + Math.pow(qdtCy - alimCy, 2));
+            const distPxAlim = comprimentoAlimentadorPx();
             const escala = (typeof state.escala === 'number' && state.escala > 0) ? state.escala : 40;
             const distCadAlim = Math.max(4, Math.ceil((distPxAlim / escala) + 3.0));
             const distAlimUsada = (ehUnidadeEspecifica && imovelAtivo && imovelAtivo.distancia) 
@@ -25915,7 +25946,7 @@
 
     // Ferramentas da aba Planta
     const PLANTA = [
-        { id: 'sel', ic: '↖', nome: 'Selecionar', tecla: 'V', modo: true, ativo: () => state.ferramentaAtiva === 'select' && !state.modoInserirAbertura && !state.modoInserirAlim,
+        { id: 'sel', ic: '↖', nome: 'Selecionar', tecla: 'V', modo: true, ativo: () => state.ferramentaAtiva === 'select' && !state.modoInserirAbertura && !state.modoInserirAlim && !state.modoInserirQdt,
           fazer: () => { state.modoInserirAbertura = null; clicar('btnToolSelect'); } },
         { id: 'draw', ic: '✎', nome: 'Mão livre', tecla: 'L', modo: true, ativo: () => state.ferramentaAtiva === 'draw' && !state.modoInserirAbertura,
           fazer: () => { state.modoInserirAbertura = null; clicar('btnToolDraw'); } },
@@ -25925,13 +25956,22 @@
           fazer: () => state.modoInserirAbertura === 'janela' ? (state.modoInserirAbertura = null) : iniciarInsercaoAbertura('janela') },
         { sep: true },
         { id: 'novo', ic: '＋', nome: 'Cômodo', tecla: 'N', fazer: () => abrirModalNovoComodo() },
+        { id: 'qdt', ic: '🟥', nome: 'QDT', tecla: 'Q', modo: true,
+          ativo: () => !!state.modoInserirQdt,
+          liga: () => state.qdtAtivo !== false,
+          fazer: () => {
+              if (state.modoInserirQdt) { state.modoInserirQdt = false; return; }
+              state.modoInserirAbertura = null; state.modoInserirAlim = false;
+              state.modoInserirQdt = true;
+              mostrarNotificacaoToast(state.qdtAtivo === false ? '🟥 Toque onde fica o quadro (QDT)' : '🟥 Toque no novo lugar do quadro', 'sucesso');
+          } },
         { id: 'alim', ic: '⚡', nome: 'Alim.', tecla: 'A', modo: true,
           ativo: () => !!state.modoInserirAlim,
           liga: () => state.alimentacaoExterna && state.alimentacaoExterna.ativa !== false,
           fazer: () => {
               if (state.modoInserirAlim) { state.modoInserirAlim = false; return; }
               if (state.pavimentoAtivoId !== 'terreo') { mostrarNotificacaoToast('A alimentação externa fica no Térreo. Troque de pavimento.', 'aviso'); return; }
-              state.modoInserirAbertura = null;
+              state.modoInserirAbertura = null; state.modoInserirQdt = false;
               state.modoInserirAlim = true;
               mostrarNotificacaoToast(state.alimentacaoExterna.ativa === false ? '⚡ Toque onde fica a entrada de energia' : '⚡ Toque no novo lugar da alimentação externa', 'sucesso');
           } },
@@ -25959,12 +25999,14 @@
 
     function indicador() {
         if (state.modoInserirAlim) return '⚡ Alimentação<br>toque no local';
+        if (state.modoInserirQdt) return '🟥 QDT<br>toque no local';
         if (state.modoInserirAbertura) return (state.modoInserirAbertura === 'janela' ? '🪟 Janela' : '🚪 Porta') + '<br>toque na parede';
         const ab = (state.aberturas || []).find(a => a.id === state.aberturaSelecionadaId);
         const tr = (state.transicoes || []).find(t => t.key === state.transicaoSelecionadaKey);
         const c = state.comodos.find(c => String(c.id) === String(state.comodoEmEdicaoId));
         const fer = listaAtual().find(f => f.modo && f.ativo && f.ativo());
-        let sel = ab ? (ab.tipo === 'janela' ? 'Janela' : 'Porta') : tr ? 'Porta int.' : c ? c.nome : '';
+        const NX = { qdt: 'QDT', alimentador: 'Alimentador', alimWp: 'Curva alim.', alimentacao: 'Alim. externa', escada: 'Escada', linha: 'Linha', texto: 'Texto', ponto: 'Ponto', waypoint: 'Curva', prumada: 'Prumada' };
+        let sel = ab ? (ab.tipo === 'janela' ? 'Janela' : 'Porta') : tr ? 'Porta int.' : c ? c.nome : (state.selecaoExtra ? (NX[state.selecaoExtra.tipo] || '') : '');
         return (fer ? fer.ic + ' ' + fer.nome : '—') + (sel ? '<br><span style="font-weight:600">' + sel.replace(/</g, '&lt;') + '</span>' : '');
     }
 
@@ -26007,7 +26049,7 @@
         const tag = (ev.target.tagName || '').toLowerCase();
         if (tag === 'input' || tag === 'textarea' || tag === 'select' || ev.ctrlKey || ev.metaKey || ev.altKey) return;
         if (aba() !== 'planta' && aba() !== 'instalacoes') return;
-        if (ev.key === 'Escape' && (state.modoInserirAbertura || state.modoInserirAlim)) { state.modoInserirAbertura = null; state.modoInserirAlim = false; render(); return; }
+        if (ev.key === 'Escape' && (state.modoInserirAbertura || state.modoInserirAlim || state.modoInserirQdt)) { state.modoInserirAbertura = null; state.modoInserirAlim = false; state.modoInserirQdt = false; render(); return; }
         const k = ev.key.toUpperCase();
         const f = listaAtual().find(x => x.tecla === k);
         if (f) { ev.preventDefault(); ev.stopImmediatePropagation(); executar(f.id); }
@@ -26067,10 +26109,25 @@
             const pt = (state.pontosEletricos || []).find(pt => pt.pavimentoId === andar && Math.hypot(p.x - pt.x, p.y - pt.y) <= 14);
             if (pt) return { tipo: 'ponto', id: pt.id, deixarOriginal: true };
         }
+        const alm = state.alimentacaoExterna;
+        const alimVisivel = alm && alm.ativa !== false && andar === 'terreo' && state.qdtAtivo !== false;
+        // curva do alimentador
+        if (alimVisivel) {
+            const w = alm.wps || [];
+            for (let i = 0; i < w.length; i++) if (Math.hypot(p.x - w[i].x, p.y - w[i].y) <= 14) return { tipo: 'alimWp', index: i };
+        }
+        // QDT
+        const q = state.qdtPos;
+        if (state.qdtAtivo !== false && q && p.x >= q.x && p.x <= q.x + q.w && p.y >= q.y && p.y <= q.y + q.h) return { tipo: 'qdt', deixarOriginal: !ehInst };
         // alimentação externa (só no térreo)
         const al = state.alimentacaoExterna;
         if (al && al.ativa !== false && andar === 'terreo' && p.x >= al.x && p.x <= al.x + al.w && p.y >= al.y && p.y <= al.y + al.h) {
             return { tipo: 'alimentacao', deixarOriginal: !ehInst };   // na Planta o app já arrasta; na Elétrica este módulo arrasta
+        }
+        // linha do alimentador: tocar cria uma curva e já começa a arrastar
+        if (alimVisivel) {
+            const r = rotaAlimentador();
+            for (let i = 0; i < r.length - 1; i++) if (distSeg(p.x, p.y, r[i], r[i + 1]) <= 10) return { tipo: 'alimentador', seg: i };
         }
         // prumada (o app original já arrasta)
         if (!ehInst && state.prumadaAtiva !== false && state.prumadaPos && Math.hypot(p.x - state.prumadaPos.x, p.y - state.prumadaPos.y) <= 14) return { tipo: 'prumada', deixarOriginal: true };
@@ -26090,11 +26147,24 @@
         return null;
     }
 
-    const NOMES = { alimentacao: '⚡ Alimentação externa', escada: '🪜 Escada', linha: '✎ Linha à mão livre', texto: '🔤 Texto', ponto: '🔌 Ponto elétrico', waypoint: '⌇ Curva do conduíte', prumada: '▲ Prumada' };
+    const NOMES = { qdt: '🟥 Quadro (QDT)', alimentador: '⚡ Alimentador', alimWp: '⚡ Curva do alimentador', alimentacao: '⚡ Alimentação externa', escada: '🪜 Escada', linha: '✎ Linha à mão livre', texto: '🔤 Texto', ponto: '🔌 Ponto elétrico', waypoint: '⌇ Curva do conduíte', prumada: '▲ Prumada' };
 
     function aoPressionar(e) {
         if (state.modoInserirAbertura) return;
         const cv = e.currentTarget, ehInst = cv.id === 'instalacoesCanvas';
+        // Colocar o QDT onde tocar
+        if (state.modoInserirQdt) {
+            const pp = coord(cv, e);
+            state.qdtAtivo = true;
+            state.qdtPos.x = pp.x - state.qdtPos.w / 2; state.qdtPos.y = pp.y - state.qdtPos.h / 2;
+            state.modoInserirQdt = false;
+            limparOutrasSelecoes();
+            state.selecaoExtra = { tipo: 'qdt', deixarOriginal: !ehInst };
+            concluir();
+            mostrarNotificacaoToast('🟥 Quadro colocado. Arraste para ajustar.', 'sucesso');
+            e.stopImmediatePropagation(); e.preventDefault();
+            return;
+        }
         // Colocar a alimentação externa onde tocar
         if (state.modoInserirAlim) {
             const pp = coord(cv, e);
@@ -26114,6 +26184,12 @@
         const obj = acharObjeto(p, ehInst);
         if (!obj) { if (state.selecaoExtra) { state.selecaoExtra = null; setTimeout(() => { desenharCAD(); desenharInstalacoes(); }, 0); } return; }
         limparOutrasSelecoes();
+        if (obj.tipo === 'alimentador') {
+            const al = state.alimentacaoExterna;
+            al.wps = al.wps || [];
+            al.wps.splice(obj.seg, 0, { x: p.x, y: p.y });
+            obj.tipo = 'alimWp'; obj.index = obj.seg; obj.novo = true;
+        }
         state.selecaoExtra = obj;
         if (obj.deixarOriginal) { setTimeout(() => { desenharCAD(); desenharInstalacoes(); }, 0); return; }
         // escada, linha e texto: este módulo arrasta
@@ -26130,6 +26206,16 @@
         const o = arrasto.obj;
         if (o.tipo === 'escada') { const es = state.escadas.find(x => x.id === o.id); if (es) { es.x += dx; es.y += dy; } }
         else if (o.tipo === 'alimentacao') { state.alimentacaoExterna.x += dx; state.alimentacaoExterna.y += dy; }
+        else if (o.tipo === 'qdt') { state.qdtPos.x += dx; state.qdtPos.y += dy; }
+        else if (o.tipo === 'alimWp') {
+            const w = state.alimentacaoExterna.wps[o.index];
+            if (w) {
+                w.x = p.x; w.y = p.y;
+                // gruda em 90° com o ponto anterior/seguinte
+                const r = rotaAlimentador(), i = o.index + 1;
+                [r[i - 1], r[i + 1]].filter(Boolean).forEach(v => { if (Math.abs(w.x - v.x) <= 12) w.x = v.x; if (Math.abs(w.y - v.y) <= 12) w.y = v.y; });
+            }
+        }
         else if (o.tipo === 'texto') { const t = state.linhasMaoLivre[o.idx]; t.x += dx; t.y += dy; }
         else if (o.tipo === 'linha') { state.linhasMaoLivre[o.idx].forEach(pt => { pt.x += dx; pt.y += dy; }); }
         arrasto.moveu = true;
@@ -26138,7 +26224,13 @@
     }
     function aoSoltar(e) {
         if (!arrasto) return;
-        const m = arrasto.moveu; arrasto = null;
+        const m = arrasto.moveu, o = arrasto.obj; arrasto = null;
+        // Toque simples na linha do alimentador (sem arrastar): só seleciona, não cria curva
+        if (!m && o.novo && o.tipo === 'alimWp') {
+            (state.alimentacaoExterna.wps || []).splice(o.index, 1);
+            state.selecaoExtra = { tipo: 'alimentador' };
+            desenharCAD(); desenharInstalacoes();
+        }
         if (m) concluir();
         e.stopImmediatePropagation();
     }
@@ -26158,7 +26250,9 @@
             else if (o.tipo === 'ponto') state.pontosEletricos = state.pontosEletricos.filter(p => String(p.id) !== String(o.id));
             else if (o.tipo === 'waypoint') { const w = state.eletrodutoWaypoints[o.circNum]; if (w) w.splice(o.index, 1); }
             else if (o.tipo === 'prumada') state.prumadaAtiva = false;
-            else if (o.tipo === 'alimentacao') state.alimentacaoExterna.ativa = false;
+            else if (o.tipo === 'alimentacao' || o.tipo === 'alimentador') state.alimentacaoExterna.ativa = false;
+            else if (o.tipo === 'alimWp') { const w = state.alimentacaoExterna.wps || []; w.splice(o.index, 1); }
+            else if (o.tipo === 'qdt') state.qdtAtivo = false;
             mostrarNotificacaoToast((NOMES[o.tipo] || 'Item') + ' excluído. (↶ desfaz)', 'sucesso');
             state.selecaoExtra = null;
             if (o.tipo === 'ponto') state.pontoSelecionadoId = null;
@@ -26184,6 +26278,9 @@
         else if (o.tipo === 'waypoint') { const w = (state.eletrodutoWaypoints[o.circNum] || [])[o.index]; if (w) { ctx.beginPath(); ctx.arc(w.x, w.y, 14, 0, Math.PI * 2); ctx.stroke(); } }
         else if (o.tipo === 'prumada') { ctx.beginPath(); ctx.arc(state.prumadaPos.x, state.prumadaPos.y, 18, 0, Math.PI * 2); ctx.stroke(); }
         else if (o.tipo === 'alimentacao') { const al = state.alimentacaoExterna; ctx.strokeRect(al.x - 5, al.y - 5, al.w + 10, al.h + 10); }
+        else if (o.tipo === 'qdt') { const q = state.qdtPos; ctx.strokeRect(q.x - 5, q.y - 5, q.w + 10, q.h + 10); }
+        else if (o.tipo === 'alimentador') { const r = rotaAlimentador(); ctx.lineWidth = 9; ctx.globalAlpha = .4; ctx.setLineDash([]); ctx.beginPath(); r.forEach((pt, i) => i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y)); ctx.stroke(); }
+        else if (o.tipo === 'alimWp') { const w = (state.alimentacaoExterna.wps || [])[o.index]; if (w) { ctx.beginPath(); ctx.arc(w.x, w.y, 13, 0, Math.PI * 2); ctx.stroke(); } }
         ctx.restore();
     }
     function atualizarBarra() {
@@ -26197,6 +26294,9 @@
         if (o && (o.tipo === 'linha' || o.tipo === 'texto') && !(state.linhasMaoLivre || [])[o.idx]) state.selecaoExtra = o = null;
         if (o && o.tipo === 'ponto' && !(state.pontosEletricos || []).some(p => String(p.id) === String(o.id))) state.selecaoExtra = o = null;
         if (o && o.tipo === 'alimentacao' && (state.alimentacaoExterna.ativa === false || state.pavimentoAtivoId !== 'terreo')) state.selecaoExtra = o = null;
+        if (o && o.tipo === 'qdt' && state.qdtAtivo === false) state.selecaoExtra = o = null;
+        if (o && o.tipo === 'alimentador' && (state.alimentacaoExterna.ativa === false || state.qdtAtivo === false)) state.selecaoExtra = o = null;
+        if (o && o.tipo === 'alimWp' && !(state.alimentacaoExterna.wps || [])[o.index]) state.selecaoExtra = o = null;
         const aba = state.abaAtiva || 'planta';
         const mostrar = !!o && (aba === 'planta' || aba === 'instalacoes');
         bar.style.display = mostrar ? 'flex' : 'none';
@@ -26205,7 +26305,7 @@
         if (o.tipo === 'ponto') { const pt = state.pontosEletricos.find(p => String(p.id) === String(o.id)); if (pt) nome = `🔌 ${pt.tipo} ${pt.nome || ''}`; }
         document.getElementById('lblBarraSelecao').textContent = nome;
         const ed = document.getElementById('btnSelEditar');
-        const rotulo = { ponto: '✏️ Editar', texto: '✏️ Editar', escada: '✏️ Editar', prumada: '✏️ Editar', alimentacao: '✏️ Editar' }[o.tipo];
+        const rotulo = { ponto: '✏️ Editar', texto: '✏️ Editar', escada: '✏️ Editar', prumada: '✏️ Editar', alimentacao: '✏️ Editar', alimWp: '✏️ Editar', alimentador: '✏️ Editar', qdt: '✏️ Editar' }[o.tipo];
         ed.style.display = rotulo ? '' : 'none';
         if (rotulo) ed.textContent = rotulo;
         ['barraComodoV2', 'barraAberturaV2'].forEach(id => { const b = document.getElementById(id); if (b) b.style.display = 'none'; });
@@ -26278,7 +26378,8 @@
             if (o.tipo === 'texto') return { tipo: 'texto', ref: state.linhasMaoLivre[o.idx], idx: o.idx };
             if (o.tipo === 'ponto') return { tipo: 'ponto', ref: state.pontosEletricos.find(p => String(p.id) === String(o.id)) };
             if (o.tipo === 'prumada') return { tipo: 'prumada', ref: state.prumadaPos };
-            if (o.tipo === 'alimentacao') return { tipo: 'alimentacao', ref: state.alimentacaoExterna };
+            if (o.tipo === 'alimentacao' || o.tipo === 'alimWp' || o.tipo === 'alimentador') return { tipo: 'alimentacao', ref: state.alimentacaoExterna };
+            if (o.tipo === 'qdt') return { tipo: 'qdt', ref: state.qdtPos };
             if (o.tipo === 'linha') return { tipo: 'linha', ref: state.linhasMaoLivre[o.idx], idx: o.idx };
         }
         const c = state.comodos.find(c => String(c.id) === String(state.comodoEmEdicaoId));
@@ -26333,10 +26434,15 @@
         } else if (a.tipo === 'linha') {
             titulo = '✎ Linha à mão livre';
             h += `<div class="ep-dica">Arraste a linha na planta para mover. Use Excluir para apagar.</div>`;
+        } else if (a.tipo === 'qdt') {
+            titulo = '🟥 Quadro de distribuição (QDT)';
+            h += `<div class="ep-dica">Arraste o quadro na planta para mudar de lugar; os eletrodutos e o alimentador acompanham.</div>`;
+            h += `<div class="ep-dica">Excluir tira o QDT do desenho (com os eletrodutos). O cálculo do projeto continua usando a última posição. Para colocar de volta use 🟥 QDT no painel.</div>`;
         } else if (a.tipo === 'alimentacao') {
             titulo = '⚡ Alimentação externa';
             h += `<div><label>Comprimento do ramal até o QDT (m)</label><input id="epDistAlim" type="number" step="0.5" placeholder="Automático pelo desenho" value="${r.distanciaManual || ''}"><div class="ep-dica">Deixe em branco para calcular pela distância no desenho (+3 m de folga).</div></div>`;
-            h += `<div class="ep-dica">Arraste na planta para mudar de lugar. Excluir tira a alimentação do desenho; para colocar de volta use ⚡ Alim. no painel.</div>`;
+            h += `<div><label>Traçado do alimentador</label>${seg('tracoAl', [['manter', 'Manter curvas'], ['L', '⌐ Em L'], ['reta', '／ Reta']], 'manter')}<div class="ep-dica">Toque na linha verde na planta para criar uma curva e arraste. Duplo toque na curva para editar.</div></div>`;
+            h += `<div class="ep-dica">Arraste a caixa na planta para mudar de lugar. Excluir tira a alimentação do desenho; para colocar de volta use ⚡ Alim. no painel.</div>`;
         } else if (a.tipo === 'prumada') {
             titulo = '▲ Prumada';
             h += `<div class="ep-dica">Arraste a prumada na planta para mudar de lugar. Excluir esconde a prumada (dá para desfazer).</div>`;
@@ -26379,6 +26485,9 @@
         } else if (alvo.tipo === 'alimentacao') {
             const d = num(el('epDistAlim').value);
             r.distanciaManual = d && d > 0 ? d : null;
+            const traco = lerSeg('tracoAl');
+            if (traco === 'reta') r.wps = [];
+            if (traco === 'L') { const q = state.qdtPos; r.wps = [{ x: q.x + q.w / 2, y: r.y + r.h / 2 }]; }
         } else if (alvo.tipo === 'texto') {
             const t = el('epTexto').value.trim(); if (t) r.texto = t;
             const tam = num(el('epTam').value); if (tam) r.tamanho = Math.max(6, Math.min(60, tam));
