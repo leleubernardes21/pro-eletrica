@@ -25797,5 +25797,128 @@
 })();
 </script>
 
+<!-- =====================================================================
+     PAINEL DE FERRAMENTAS (Leo): barra fixa estilo CAD com indicador da
+     ferramenta ativa. Funciona no computador (atalhos) e no celular.
+     ===================================================================== -->
+<style>
+  #painelFerramentasV2 { position: fixed; right: 8px; top: 50%; transform: translateY(-50%); z-index: 44; display: none; flex-direction: column; align-items: stretch; gap: 4px; background: rgba(15,23,42,.94); border: 1px solid #334155; border-radius: 14px; padding: 5px; box-shadow: 0 8px 24px rgba(0,0,0,.5); max-height: 78vh; overflow-y: auto; }
+  #painelFerramentasV2 .pf-ind { font-size: 9px; font-weight: 800; color: #0f172a; background: #fbbf24; border-radius: 8px; padding: 4px 5px; text-align: center; line-height: 1.15; max-width: 64px; }
+  #painelFerramentasV2 .pf-btn { width: 64px; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 5px 2px; border-radius: 10px; background: #1e293b; color: #cbd5e1; border: 1px solid #334155; font-size: 15px; line-height: 1; cursor: pointer; }
+  #painelFerramentasV2 .pf-btn span { font-size: 9px; font-weight: 700; }
+  #painelFerramentasV2 .pf-btn kbd { font-size: 8px; color: #64748b; font-family: monospace; }
+  #painelFerramentasV2 .pf-btn.ativo { background: #f59e0b; color: #0f172a; border-color: #fbbf24; box-shadow: 0 0 0 2px rgba(251,191,36,.35); }
+  #painelFerramentasV2 .pf-btn.ativo kbd { color: #422006; }
+  #painelFerramentasV2 .pf-btn.liga { border-color: #10b981; color: #6ee7b7; }
+  #painelFerramentasV2 .pf-sep { height: 1px; background: #334155; margin: 2px 0; }
+  #painelFerramentasV2.recolhido .pf-btn:not(.pf-toggle), #painelFerramentasV2.recolhido .pf-sep { display: none; }
+  @media (max-width: 640px) { #painelFerramentasV2 .pf-btn { width: 52px; padding: 4px 1px; font-size: 14px; } #painelFerramentasV2 .pf-btn kbd { display: none; } #painelFerramentasV2 .pf-ind { max-width: 52px; } }
+</style>
+<div id="painelFerramentasV2" class="no-print"></div>
+<script>
+(function () {
+    'use strict';
+    const clicar = id => { const b = document.getElementById(id); if (b) b.click(); };
+    const aba = () => state.abaAtiva || 'planta';
+
+    // Ferramentas da aba Planta
+    const PLANTA = [
+        { id: 'sel', ic: '↖', nome: 'Selecionar', tecla: 'V', modo: true, ativo: () => state.ferramentaAtiva === 'select' && !state.modoInserirAbertura,
+          fazer: () => { state.modoInserirAbertura = null; clicar('btnToolSelect'); } },
+        { id: 'draw', ic: '✎', nome: 'Mão livre', tecla: 'L', modo: true, ativo: () => state.ferramentaAtiva === 'draw' && !state.modoInserirAbertura,
+          fazer: () => { state.modoInserirAbertura = null; clicar('btnToolDraw'); } },
+        { id: 'porta', ic: '🚪', nome: 'Porta', tecla: 'P', modo: true, ativo: () => state.modoInserirAbertura === 'porta',
+          fazer: () => state.modoInserirAbertura === 'porta' ? (state.modoInserirAbertura = null) : iniciarInsercaoAbertura('porta') },
+        { id: 'janela', ic: '🪟', nome: 'Janela', tecla: 'J', modo: true, ativo: () => state.modoInserirAbertura === 'janela',
+          fazer: () => state.modoInserirAbertura === 'janela' ? (state.modoInserirAbertura = null) : iniciarInsercaoAbertura('janela') },
+        { sep: true },
+        { id: 'novo', ic: '＋', nome: 'Cômodo', tecla: 'N', fazer: () => abrirModalNovoComodo() },
+        { id: 'unir', ic: '🧩', nome: 'Unir', fazer: () => autoUnirEAlinharComodos() },
+        { sep: true },
+        { id: 'cotas', ic: '📏', nome: 'Cotas', tecla: 'C', liga: () => !state.camadas || state.camadas.cotas !== false, fazer: () => toggleCotasExibicao() },
+        { id: 'ima', ic: '🧲', nome: 'Ímã', tecla: 'M', liga: () => state.snapMagnetico !== false, fazer: () => alternarSnapMagnetico() },
+        { id: 'travar', ic: '🔒', nome: 'Travar', liga: () => !!state.comodosFixados, fazer: () => toggleFixarComodos() }
+    ];
+    // Ferramentas da aba Elétrica
+    const ELETRICA = [
+        { id: 'tom', ic: '✥', nome: 'Tomadas', tecla: 'V', modo: true, ativo: () => state.ferramentaInstalacoes === 'mover_pontos', fazer: () => clicar('btnToolMoverPontos') },
+        { id: 'com', ic: '▭', nome: 'Cômodos', tecla: 'R', modo: true, ativo: () => state.ferramentaInstalacoes === 'mover_comodos', fazer: () => clicar('btnToolMoverComodosInst') },
+        { id: 'cond', ic: '⌇', nome: 'Conduítes', tecla: 'E', modo: true, ativo: () => state.ferramentaInstalacoes === 'curvas_eletroduto', fazer: () => clicar('btnToolCurvasEletroduto') },
+        { sep: true },
+        { id: 'luz', ic: '💡', nome: '+ Luz', fazer: () => abrirModalPontoNovo('ILUM') },
+        { id: 'tug', ic: '🔌', nome: '+ TUG', tecla: 'T', fazer: () => abrirModalPontoNovo('TUG') },
+        { id: 'tue', ic: '⚡', nome: '+ TUE', fazer: () => abrirModalPontoNovo('TUE') },
+        { sep: true },
+        { id: 'emL', ic: '⌐', nome: 'Em L', fazer: () => tracarEletrodutosEmL() },
+        { id: 'reta', ic: '／', nome: 'Reta', fazer: () => resetarTodasCurvasEletrodutos() }
+    ];
+
+    function listaAtual() { return aba() === 'instalacoes' ? ELETRICA : PLANTA; }
+
+    function indicador() {
+        if (state.modoInserirAbertura) return (state.modoInserirAbertura === 'janela' ? '🪟 Janela' : '🚪 Porta') + '<br>toque na parede';
+        const ab = (state.aberturas || []).find(a => a.id === state.aberturaSelecionadaId);
+        const tr = (state.transicoes || []).find(t => t.key === state.transicaoSelecionadaKey);
+        const c = state.comodos.find(c => String(c.id) === String(state.comodoEmEdicaoId));
+        const fer = listaAtual().find(f => f.modo && f.ativo && f.ativo());
+        let sel = ab ? (ab.tipo === 'janela' ? 'Janela' : 'Porta') : tr ? 'Porta int.' : c ? c.nome : '';
+        return (fer ? fer.ic + ' ' + fer.nome : '—') + (sel ? '<br><span style="font-weight:600">' + sel.replace(/</g, '&lt;') + '</span>' : '');
+    }
+
+    let recolhido = false;
+    try { recolhido = localStorage.getItem('pf_recolhido') === '1'; } catch (e) {}
+
+    function render() {
+        const el = document.getElementById('painelFerramentasV2');
+        if (!el) return;
+        const visivel = (aba() === 'planta' || aba() === 'instalacoes');
+        el.style.display = visivel ? 'flex' : 'none';
+        if (!visivel) return;
+        el.classList.toggle('recolhido', recolhido);
+        let html = `<div class="pf-ind" title="Ferramenta ativa e seleção">${indicador()}</div>`;
+        html += `<button class="pf-btn pf-toggle" data-acao="toggle" title="${recolhido ? 'Mostrar' : 'Esconder'} ferramentas">${recolhido ? '☰' : '⌃'}<span>${recolhido ? 'Abrir' : 'Ocultar'}</span></button>`;
+        listaAtual().forEach(f => {
+            if (f.sep) { html += '<div class="pf-sep"></div>'; return; }
+            const cls = (f.ativo && f.ativo()) ? 'ativo' : (f.liga && f.liga()) ? 'liga' : '';
+            html += `<button class="pf-btn ${cls}" data-acao="${f.id}" title="${f.nome}${f.tecla ? ' (' + f.tecla + ')' : ''}">${f.ic}<span>${f.nome}</span>${f.tecla ? '<kbd>' + f.tecla + '</kbd>' : ''}</button>`;
+        });
+        el.innerHTML = html;
+    }
+
+    function executar(id) {
+        if (id === 'toggle') { recolhido = !recolhido; try { localStorage.setItem('pf_recolhido', recolhido ? '1' : '0'); } catch (e) {} render(); return; }
+        const f = listaAtual().find(x => x.id === id);
+        if (!f) return;
+        f.fazer();
+        desenharCAD(); desenharInstalacoes();
+        render();
+    }
+
+    document.addEventListener('click', ev => {
+        const b = ev.target.closest && ev.target.closest('#painelFerramentasV2 .pf-btn');
+        if (b) { ev.preventDefault(); executar(b.dataset.acao); }
+    });
+
+    // Atalhos de teclado (computador)
+    document.addEventListener('keydown', ev => {
+        const tag = (ev.target.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select' || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+        if (aba() !== 'planta' && aba() !== 'instalacoes') return;
+        if (ev.key === 'Escape' && state.modoInserirAbertura) { state.modoInserirAbertura = null; render(); return; }
+        const k = ev.key.toUpperCase();
+        const f = listaAtual().find(x => x.tecla === k);
+        if (f) { ev.preventDefault(); ev.stopImmediatePropagation(); executar(f.id); }
+    }, true);
+
+    // Mantém o painel atualizado
+    ['desenharCAD', 'desenharInstalacoes', 'trocarAba'].forEach(n => {
+        const orig = window[n];
+        if (typeof orig !== 'function') return;
+        window[n] = function () { const r = orig.apply(this, arguments); render(); return r; };
+    });
+    window.addEventListener('load', () => setTimeout(render, 1600));
+})();
+</script>
+
 </body>
 </html>
