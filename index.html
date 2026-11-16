@@ -8763,7 +8763,7 @@
                     if (adjacente) {
                         const key = `${Math.min(A.id, B.id)}_${Math.max(A.id, B.id)}`;
                         const transExistente = state.transicoes.find(t => t.key === key);
-                        const tipo = transExistente ? transExistente.tipo : 'porta';
+                        const tipo = transExistente ? transExistente.tipo : 'parede';   // Leo: não cria porta sozinho
                         const larguraTrans = transExistente ? transExistente.largura : undefined;
                         const deslocTrans = transExistente ? (transExistente.deslocamento || 0) : 0;
                         const dobradicaTrans = transExistente ? transExistente.dobradica : undefined;
@@ -25452,6 +25452,25 @@
         return melhor;
     }
 
+    // Parede compartilhada entre dois cômodos (transição) debaixo do toque
+    function paredeEntreComodos(x, y) {
+        const esc = state.escala || 35;
+        let achou = null;
+        (state.transicoes || []).filter(t => t.pavimentoId === state.pavimentoAtivoId).forEach(t => {
+            const A = state.comodos.find(c => c.id === t.comodoAId), B = state.comodos.find(c => c.id === t.comodoBId);
+            if (!A || !B) return;
+            const Aw = A.largura * esc, Ah = A.comprimento * esc, Bw = B.largura * esc, Bh = B.comprimento * esc;
+            let ini, fim, linha, ao, at;
+            if (t.orientacao === 'V') { ini = Math.max(A.y, B.y); fim = Math.min(A.y + Ah, B.y + Bh); linha = t.x; ao = y; at = x; }
+            else { ini = Math.max(A.x, B.x); fim = Math.min(A.x + Aw, B.x + Bw); linha = t.y; ao = x; at = y; }
+            if (ao >= ini && ao <= fim && Math.abs(at - linha) <= 14) {
+                const meio = (ini + fim) / 2;
+                achou = { ref: t, centroSemDesl: t.orientacao === 'V' ? { x: t.x, y: meio } : { x: meio, y: t.y } };
+            }
+        });
+        return achou;
+    }
+
     function aberturaNoPonto(x, y) {
         const porId = {};
         comodosDoAndar().forEach(c => { porId[String(c.id)] = c; });
@@ -25476,6 +25495,24 @@
         const canvas = e.currentTarget;
         const p = coordCanvas(canvas, e);
         // 1. Modo de inserção
+        if (state.modoInserirAbertura === 'porta') {
+            const tr = paredeEntreComodos(p.x, p.y);
+            if (tr) {
+                const esc = state.escala || 35;
+                const centro = tr.ref.orientacao === 'V' ? tr.centroSemDesl.y : tr.centroSemDesl.x;
+                const clique = tr.ref.orientacao === 'V' ? p.y : p.x;
+                tr.ref.tipo = 'porta';
+                tr.ref.deslocamento = (clique - centro) / esc;
+                state.transicaoSelecionadaKey = tr.ref.key;
+                state.aberturaSelecionadaId = null;
+                state.modoInserirAbertura = null;
+                detectarProximidadeComodos();
+                redesenhar(); salvar();
+                mostrarNotificacaoToast(`Porta criada entre ${tr.ref.nomeA} e ${tr.ref.nomeB}. Duplo toque para editar.`, 'sucesso');
+                e.stopImmediatePropagation(); e.preventDefault();
+                return;
+            }
+        }
         if (state.modoInserirAbertura) {
             const par = paredeMaisProxima(p.x, p.y, 28);
             if (!par) { mostrarNotificacaoToast('Toque mais perto de uma parede.', 'aviso'); e.stopImmediatePropagation(); e.preventDefault(); return; }
