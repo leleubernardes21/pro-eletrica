@@ -13295,12 +13295,12 @@
             ctx.fillStyle = '#10b981';
             ctx.font = 'bold 11px monospace';
             const tituloTerreno = tw < 220 ? `LOTE: ${t.largura.toFixed(1)}m×${t.comprimento.toFixed(1)}m` : `TERRENO TOTAL: ${t.largura.toFixed(1)}m × ${t.comprimento.toFixed(1)}m (${(t.largura * t.comprimento).toFixed(1)} m²)`;
-            ctx.fillText(tituloTerreno, t.x + 8, t.y + 16);
+            ctx.fillText(tituloTerreno, t.x + 2, Math.max(12, t.y - 20));
 
             if (rf > 0 || rl > 0 || rfun > 0) {
                 ctx.fillStyle = 'rgba(245, 158, 11, 0.85)';
                 ctx.font = '9px sans-serif';
-                ctx.fillText(`Recuos: F:${t.recuoFrontal !== undefined ? t.recuoFrontal : 4}m • L:${t.recuoLateral !== undefined ? t.recuoLateral : 1.5}m • Fundos:${t.recuoFundos !== undefined ? t.recuoFundos : 3}m`, t.x + 8, t.y + 28);
+                ctx.fillText(`Recuos: F:${t.recuoFrontal !== undefined ? t.recuoFrontal : 4}m • L:${t.recuoLateral !== undefined ? t.recuoLateral : 1.5}m • Fundos:${t.recuoFundos !== undefined ? t.recuoFundos : 3}m`, t.x + 2, Math.max(24, t.y - 8));
             }
 
             // 6. COTAS DE MEDIDA NOS EIXOS DO LOTE (CENTRALIZADAS)
@@ -13805,21 +13805,9 @@
                     ctx.setLineDash([]);
                 }
 
-                // Rótulos e textos adaptados para ambientes compactos (< 0.90m)
+                // Rótulos (nome, área e medidas) são desenhados no final, por cima de tudo: desenharRotulosECotas()
                 const isCompacto = (w < 55 || h < 42);
                 const estaFixado = !!(c.fixado || state.comodosFixados);
-                ctx.fillStyle = isEditing ? '#fef08a' : (estaFixado ? '#fde68a' : '#ffffff');
-                ctx.font = isCompacto ? 'bold 9px sans-serif' : 'bold 11px sans-serif';
-                const labelX = c.x + (isCompacto ? 4 : 8);
-                const labelY = c.y + (isCompacto ? 12 : 18);
-                const txtComodo = isEditing ? `✏️ ${c.nome}` : (estaFixado ? `🔒 ${c.nome}` : c.nome);
-                ctx.fillText(txtComodo, labelX, labelY);
-
-                if (h >= 32) {
-                    ctx.fillStyle = '#94a3b8';
-                    ctx.font = isCompacto ? '8px sans-serif' : '10px sans-serif';
-                    ctx.fillText(isCompacto ? `${c.area.toFixed(1)}m²` : `${c.area.toFixed(1)}m² (${c.perimetro.toFixed(1)}m)`, labelX, labelY + (isCompacto ? 11 : 14));
-                }
 
                 const luzX = c.x + w / 2;
                 const luzY = c.y + h / 2;
@@ -13928,6 +13916,9 @@
                 ctx.font = 'bold 8px monospace';
                 ctx.fillText('CONCESSIONÁRIA', alim.x + 3, alim.y + 27);
             }
+
+            // 11. Rótulos dos cômodos (com fundo, sempre legíveis) e cotas
+            desenharRotulosECotas(ctx, comodosAndar);
         }
 
         // FUNÇÕES DE GEOMETRIA E DETECÇÃO DE CABOS VIRTUAIS NO CANVAS (MOUSE HOVER NO COMPUTADOR)
@@ -14862,6 +14853,93 @@
             if (window.hardwareTelemetry) {
                 window.hardwareTelemetry.cpuBusyTime += (performance.now() - _telemetryStart);
             }
+        }
+
+        // =========================================================================
+        // RÓTULOS E COTAS (Leo - Etapa 5)
+        // =========================================================================
+        function fmtM(v) { return v.toFixed(2).replace('.', ','); }
+
+        function pilulaTexto(ctx, linhas, x, y, opts = {}) {
+            const pad = 4, gap = 2;
+            let larg = 0, alt = pad * 2 - gap;
+            linhas.forEach(l => { ctx.font = l.font; larg = Math.max(larg, ctx.measureText(l.txt).width); alt += l.size + gap; });
+            larg += pad * 2;
+            ctx.fillStyle = opts.fundo || 'rgba(15, 23, 42, 0.82)';
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(x, y, larg, alt, 4); else ctx.rect(x, y, larg, alt);
+            ctx.fill();
+            let cy = y + pad;
+            linhas.forEach(l => { ctx.font = l.font; ctx.fillStyle = l.cor; ctx.textBaseline = 'top'; ctx.fillText(l.txt, x + pad, cy); cy += l.size + gap; });
+            ctx.textBaseline = 'alphabetic';
+            return { larg, alt };
+        }
+
+        function linhaCota(ctx, x1, y1, x2, y2, texto, vertical) {
+            ctx.strokeStyle = '#94a3b8';
+            ctx.fillStyle = '#cbd5e1';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+            // traços de marcação a 45° (padrão de desenho técnico)
+            [[x1, y1], [x2, y2]].forEach(([px, py]) => { ctx.moveTo(px - 4, py + 4); ctx.lineTo(px + 4, py - 4); });
+            ctx.stroke();
+            ctx.font = 'bold 9px sans-serif';
+            ctx.textAlign = 'center';
+            const comp = vertical ? Math.abs(y2 - y1) : Math.abs(x2 - x1);
+            if (comp < ctx.measureText(texto).width + 6) { ctx.textAlign = 'start'; return; }
+            if (vertical) {
+                ctx.save(); ctx.translate(x1 - 4, (y1 + y2) / 2); ctx.rotate(-Math.PI / 2); ctx.fillText(texto, 0, 0); ctx.restore();
+            } else {
+                ctx.fillText(texto, (x1 + x2) / 2, y1 - 4);
+            }
+            ctx.textAlign = 'start';
+        }
+
+        function desenharRotulosECotas(ctx, comodos) {
+            if (!comodos || !comodos.length) return;
+            const e = state.escala || 35;
+            ctx.save();
+            ctx.setLineDash([]);
+
+            // Rótulos dos cômodos: nome + área + medidas, com fundo escuro
+            comodos.forEach(c => {
+                const w = c.largura * e, h = c.comprimento * e;
+                const isEditing = (String(state.comodoEmEdicaoId) === String(c.id));
+                const estaFixado = !!(c.fixado || state.comodosFixados);
+                const compacto = (w < 80 || h < 50);
+                const m = obterMeiaEspessuraPx(c);
+                const nome = (isEditing ? '✏️ ' : (estaFixado ? '🔒 ' : '')) + c.nome;
+                const linhas = [{ txt: nome, font: `bold ${compacto ? 9 : 11}px sans-serif`, size: compacto ? 9 : 11, cor: isEditing ? '#fef08a' : (estaFixado ? '#fde68a' : '#ffffff') }];
+                if (h >= 36) linhas.push({ txt: `${c.area.toFixed(1).replace('.', ',')} m²${compacto ? '' : ' · ' + fmtM(c.largura) + ' × ' + fmtM(c.comprimento)}`, font: `${compacto ? 8 : 9}px sans-serif`, size: compacto ? 8 : 9, cor: '#94a3b8' });
+                // Em L com recorte no canto superior esquerdo, o rótulo vai para o canto superior direito
+                let lx = c.x + m + 3;
+                const r = recorteValido(c);
+                if (r && r.canto === 'NO') lx = c.x + r.largura * e + m + 3;
+                pilulaTexto(ctx, linhas, lx, c.y + m + 3);
+            });
+
+            // Cotas encadeadas (topo e lado esquerdo do conjunto)
+            if (!state.camadas || state.camadas.cotas !== false) {
+                const xs = new Set(), ys = new Set();
+                let minX = Infinity, minY = Infinity;
+                comodos.forEach(c => {
+                    const w = c.largura * e, h = c.comprimento * e;
+                    xs.add(Math.round(c.x)); xs.add(Math.round(c.x + w));
+                    ys.add(Math.round(c.y)); ys.add(Math.round(c.y + h));
+                    const m = obterMeiaEspessuraPx(c);
+                    minX = Math.min(minX, c.x - m); minY = Math.min(minY, c.y - m);
+                });
+                const limpa = arr => arr.sort((a, b) => a - b).filter((v, i, a) => i === 0 || v - a[i - 1] > 3);
+                const X = limpa([...xs]), Y = limpa([...ys]);
+                const yc = minY - 14, xc = minX - 14;
+                for (let i = 0; i < X.length - 1; i++) linhaCota(ctx, X[i], yc, X[i + 1], yc, fmtM((X[i + 1] - X[i]) / e), false);
+                for (let i = 0; i < Y.length - 1; i++) linhaCota(ctx, xc, Y[i], xc, Y[i + 1], fmtM((Y[i + 1] - Y[i]) / e), true);
+                // cota total
+                if (X.length > 2) linhaCota(ctx, X[0], yc - 14, X[X.length - 1], yc - 14, 'Total ' + fmtM((X[X.length - 1] - X[0]) / e) + ' m', false);
+                if (Y.length > 2) linhaCota(ctx, xc - 14, Y[0], xc - 14, Y[Y.length - 1], 'Total ' + fmtM((Y[Y.length - 1] - Y[0]) / e) + ' m', true);
+            }
+            ctx.restore();
         }
 
         // =========================================================================
