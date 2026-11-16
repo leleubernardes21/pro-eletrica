@@ -8765,6 +8765,16 @@
                         const transExistente = state.transicoes.find(t => t.key === key);
                         const tipo = transExistente ? transExistente.tipo : 'porta';
                         const larguraTrans = transExistente ? transExistente.largura : undefined;
+                        const deslocTrans = transExistente ? (transExistente.deslocamento || 0) : 0;
+                        if (deslocTrans) {
+                            const meioPorta = ((larguraTrans || (tipo === 'porta' ? 0.8 : 1.0)) * state.escala) / 2;
+                            const sobrepos = orientacao === 'V'
+                                ? Math.min(A.y + Ah, B.y + Bh) - Math.max(A.y, B.y)
+                                : Math.min(A.x + Aw, B.x + Bw) - Math.max(A.x, B.x);
+                            const lim = Math.max(0, sobrepos / 2 - meioPorta - 2);
+                            const d = Math.max(-lim, Math.min(lim, deslocTrans * state.escala));
+                            if (orientacao === 'V') posY += d; else posX += d;
+                        }
 
                         novasTransicoes.push({
                             key,
@@ -8775,6 +8785,7 @@
                             nomeB: B.nome,
                             tipo,
                             largura: larguraTrans,
+                            deslocamento: deslocTrans,
                             x: posX,
                             y: posY,
                             orientacao
@@ -25486,6 +25497,12 @@
     function aoMover(e) {
         if (!arrasto || e.currentTarget !== arrasto.canvas) return;
         const p = coordCanvas(arrasto.canvas, e);
+        const outra = paredeMaisProxima(p.x, p.y, 22);
+        if (outra && (String(outra.comodo.id) !== String(arrasto.ab.comodoId) || outra.lado !== arrasto.ab.lado)) {
+            arrasto.ab.comodoId = outra.comodo.id;
+            arrasto.ab.lado = outra.lado;
+            arrasto.c = outra.comodo;
+        }
         const c = arrasto.c;
         const vertical = (arrasto.ab.lado === 'left' || arrasto.ab.lado === 'right');
         const comp = (vertical ? c.comprimento : c.largura) * state.escala;
@@ -25771,6 +25788,8 @@
             state.transicaoSelecionadaKey = alvo.key;
             state.aberturaSelecionadaId = null;
             state.comodoEmEdicaoId = null;
+            state.selecaoExtra = null;
+            arrastoTr = { tr: alvo, cv, inicio: p, desl0: alvo.deslocamento || 0, x0: alvo.x, y0: alvo.y, moveu: false };
             desenharCAD(); desenharInstalacoes();
             e.stopImmediatePropagation(); e.preventDefault();
             return;
@@ -25779,9 +25798,32 @@
         // ao selecionar uma janela/porta solta, tira a seleção do cômodo
         setTimeout(() => { if (state.aberturaSelecionadaId && state.comodoEmEdicaoId) { state.comodoEmEdicaoId = null; desenharCAD(); desenharInstalacoes(); } else { desenharCAD(); } }, 0);
     }
+    let arrastoTr = null;
+    function aoMoverTr(e) {
+        if (!arrastoTr || e.currentTarget !== arrastoTr.cv) return;
+        const p = coord(arrastoTr.cv, e);
+        const t = arrastoTr.tr;
+        const delta = t.orientacao === 'V' ? (p.y - arrastoTr.inicio.y) : (p.x - arrastoTr.inicio.x);
+        t.deslocamento = arrastoTr.desl0 + delta / (state.escala || 35);
+        detectarProximidadeComodos();   // reposiciona respeitando os limites da parede
+        const nova = (state.transicoes || []).find(x => x.key === t.key);
+        if (nova) arrastoTr.tr = nova, nova.deslocamento = t.deslocamento;
+        arrastoTr.moveu = true;
+        desenharCAD(); desenharInstalacoes();
+        e.stopImmediatePropagation();
+    }
+    function aoSoltarTr(e) {
+        if (!arrastoTr) return;
+        const m = arrastoTr.moveu; arrastoTr = null;
+        if (m) { detectarProximidadeComodos(); atualizarTudo(); reconstruirCena3D(); salvarProjetoSilencioso(); }
+        e.stopImmediatePropagation();
+    }
     ['cadCanvas', 'instalacoesCanvas'].forEach(id => {
         const cv = document.getElementById(id);
-        if (cv) cv.addEventListener('mousedown', aoPressionar, true);
+        if (!cv) return;
+        cv.addEventListener('mousedown', aoPressionar, true);
+        cv.addEventListener('mousemove', aoMoverTr, true);
+        cv.addEventListener('mouseup', aoSoltarTr, true);
     });
 
     // Tecla Delete / Backspace no computador
@@ -25917,6 +25959,193 @@
         window[n] = function () { const r = orig.apply(this, arguments); render(); return r; };
     });
     window.addEventListener('load', () => setTimeout(render, 1600));
+})();
+</script>
+
+<!-- =====================================================================
+     SELEÇÃO UNIVERSAL (Leo): tudo na planta pode ser selecionado, movido
+     e excluído: escada, linha à mão livre, texto, ponto elétrico, curva de
+     conduíte, prumada. (Cômodos, portas e janelas têm barras próprias.)
+     ===================================================================== -->
+<div id="barraSelecaoV2" class="no-print" style="position:fixed;left:12px;right:12px;bottom:136px;z-index:46;display:none;justify-content:center;pointer-events:none">
+  <div style="pointer-events:auto;display:flex;flex-wrap:wrap;gap:5px;align-items:center;background:rgba(15,23,42,.95);border:1px solid #38bdf8;border-radius:14px;padding:6px;box-shadow:0 8px 24px rgba(0,0,0,.5)">
+    <span id="lblBarraSelecao" style="color:#7dd3fc;font-size:11px;font-weight:800;padding:0 6px"></span>
+    <button id="btnSelEditar" onclick="acaoSelecao('editar')" style="padding:7px 9px;border-radius:9px;background:#1e293b;color:#e2e8f0;font-size:12px;font-weight:700;border:1px solid #334155">✏️ Editar</button>
+    <button onclick="acaoSelecao('excluir')" style="padding:7px 9px;border-radius:9px;background:#450a0a;color:#fca5a5;font-size:12px;font-weight:700;border:1px solid #7f1d1d">🗑 Excluir</button>
+    <button onclick="acaoSelecao('fechar')" style="padding:7px 9px;border-radius:9px;background:transparent;color:#94a3b8;font-size:12px;border:1px solid #334155">✕</button>
+  </div>
+</div>
+<script>
+(function () {
+    'use strict';
+    let arrasto = null;
+    const esc = () => state.escala || 35;
+    function coord(cv, e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height }; }
+    function concluir() { atualizarTudo(); reconstruirCena3D(); salvarProjetoSilencioso(); }
+    function limparOutrasSelecoes() { state.comodoEmEdicaoId = null; state.aberturaSelecionadaId = null; state.transicaoSelecionadaKey = null; }
+
+    function retEscada(e) {
+        const v = e.orientacao === 'V';
+        const w = (v ? e.largura : e.comprimento) * esc(), h = (v ? e.comprimento : e.largura) * esc();
+        return { x: e.x, y: e.y, w, h };
+    }
+    function distSeg(px, py, a, b) { return distPontoParaSegmento(px, py, a.x, a.y, b.x, b.y); }
+
+    // ---------- O que está debaixo do toque ----------
+    function acharObjeto(p, ehInst) {
+        const andar = state.pavimentoAtivoId;
+        // curva de conduíte (só no modo Mover Conduítes)
+        if (ehInst && state.ferramentaInstalacoes === 'curvas_eletroduto') {
+            for (const k in state.eletrodutoWaypoints) {
+                const wps = state.eletrodutoWaypoints[k] || [];
+                for (let i = 0; i < wps.length; i++) if (Math.hypot(p.x - wps[i].x, p.y - wps[i].y) <= 20) return { tipo: 'waypoint', circNum: k, index: i, deixarOriginal: true };
+            }
+        }
+        // ponto elétrico (deixa o app original selecionar/arrastar)
+        if (ehInst) {
+            const pt = (state.pontosEletricos || []).find(pt => pt.pavimentoId === andar && Math.hypot(p.x - pt.x, p.y - pt.y) <= 14);
+            if (pt) return { tipo: 'ponto', id: pt.id, deixarOriginal: true };
+        }
+        // prumada (o app original já arrasta)
+        if (!ehInst && state.prumadaAtiva !== false && state.prumadaPos && Math.hypot(p.x - state.prumadaPos.x, p.y - state.prumadaPos.y) <= 14) return { tipo: 'prumada', deixarOriginal: true };
+        // escada
+        const escada = (state.escadas || []).find(e => (e.pavimentoOrigemId === andar || e.pavimentoDestinoId === andar) && (() => { const r = retEscada(e); return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h; })());
+        if (escada) return { tipo: 'escada', id: escada.id };
+        // texto e linha à mão livre
+        const lm = state.linhasMaoLivre || [];
+        for (let i = lm.length - 1; i >= 0; i--) {
+            const l = lm[i];
+            if (l && l.tipo === 'texto') {
+                if (l.pavimentoId === andar && p.x >= l.x - 4 && p.x <= l.x + (l.texto.length * (l.tamanho || 14) * 0.6) + 4 && p.y >= l.y - (l.tamanho || 14) - 4 && p.y <= l.y + 6) return { tipo: 'texto', idx: i };
+            } else if (Array.isArray(l) && l.length > 1 && l[0].pavimentoId === andar) {
+                for (let j = 0; j < l.length - 1; j++) if (distSeg(p.x, p.y, l[j], l[j + 1]) <= 8) return { tipo: 'linha', idx: i };
+            }
+        }
+        return null;
+    }
+
+    const NOMES = { escada: '🪜 Escada', linha: '✎ Linha à mão livre', texto: '🔤 Texto', ponto: '🔌 Ponto elétrico', waypoint: '⌇ Curva do conduíte', prumada: '▲ Prumada' };
+
+    function aoPressionar(e) {
+        if (state.modoInserirAbertura) return;
+        const cv = e.currentTarget, ehInst = cv.id === 'instalacoesCanvas';
+        if (!ehInst && state.ferramentaAtiva === 'draw') return;   // desenhando à mão livre
+        const p = coord(cv, e);
+        const obj = acharObjeto(p, ehInst);
+        if (!obj) { if (state.selecaoExtra) { state.selecaoExtra = null; setTimeout(() => { desenharCAD(); desenharInstalacoes(); }, 0); } return; }
+        limparOutrasSelecoes();
+        state.selecaoExtra = obj;
+        if (obj.deixarOriginal) { setTimeout(() => { desenharCAD(); desenharInstalacoes(); }, 0); return; }
+        // escada, linha e texto: este módulo arrasta
+        arrasto = { obj, cv, ultimo: p, moveu: false };
+        desenharCAD(); desenharInstalacoes();
+        e.stopImmediatePropagation(); e.preventDefault();
+    }
+    function aoMover(e) {
+        if (!arrasto || e.currentTarget !== arrasto.cv) return;
+        const p = coord(arrasto.cv, e);
+        const dx = p.x - arrasto.ultimo.x, dy = p.y - arrasto.ultimo.y;
+        arrasto.ultimo = p;
+        if (!dx && !dy) return;
+        const o = arrasto.obj;
+        if (o.tipo === 'escada') { const es = state.escadas.find(x => x.id === o.id); if (es) { es.x += dx; es.y += dy; } }
+        else if (o.tipo === 'texto') { const t = state.linhasMaoLivre[o.idx]; t.x += dx; t.y += dy; }
+        else if (o.tipo === 'linha') { state.linhasMaoLivre[o.idx].forEach(pt => { pt.x += dx; pt.y += dy; }); }
+        arrasto.moveu = true;
+        desenharCAD(); desenharInstalacoes();
+        e.stopImmediatePropagation();
+    }
+    function aoSoltar(e) {
+        if (!arrasto) return;
+        const m = arrasto.moveu; arrasto = null;
+        if (m) concluir();
+        e.stopImmediatePropagation();
+    }
+
+    window.acaoSelecao = function (acao) {
+        const o = state.selecaoExtra;
+        if (!o) return;
+        if (acao === 'fechar') { state.selecaoExtra = null; desenharCAD(); desenharInstalacoes(); return; }
+        if (acao === 'editar') {
+            if (o.tipo === 'ponto') { const pt = state.pontosEletricos.find(p => String(p.id) === String(o.id)); if (pt) abrirModalPontoEdicao(pt); }
+            else if (o.tipo === 'texto') { const t = state.linhasMaoLivre[o.idx]; const r = prompt('Texto:', t.texto); if (r !== null && r.trim()) { t.texto = r.trim(); concluir(); } }
+            else if (o.tipo === 'escada') { const es = state.escadas.find(x => x.id === o.id); if (es) { es.orientacao = es.orientacao === 'V' ? 'H' : 'V'; mostrarNotificacaoToast('Escada girada 90°', 'sucesso'); concluir(); } }
+            return;
+        }
+        if (acao === 'excluir') {
+            if (o.tipo === 'escada') state.escadas = state.escadas.filter(x => x.id !== o.id);
+            else if (o.tipo === 'linha' || o.tipo === 'texto') state.linhasMaoLivre.splice(o.idx, 1);
+            else if (o.tipo === 'ponto') state.pontosEletricos = state.pontosEletricos.filter(p => String(p.id) !== String(o.id));
+            else if (o.tipo === 'waypoint') { const w = state.eletrodutoWaypoints[o.circNum]; if (w) w.splice(o.index, 1); }
+            else if (o.tipo === 'prumada') state.prumadaAtiva = false;
+            mostrarNotificacaoToast((NOMES[o.tipo] || 'Item') + ' excluído. (↶ desfaz)', 'sucesso');
+            state.selecaoExtra = null;
+            if (o.tipo === 'ponto') state.pontoSelecionadoId = null;
+            detectarProximidadeComodos();
+            return concluir();
+        }
+    };
+
+    // ---------- Destaque visual e barra ----------
+    function destacar() {
+        const o = state.selecaoExtra;
+        if (!o) return;
+        const ehInst = state.abaAtiva === 'instalacoes';
+        const cv = document.getElementById(ehInst ? 'instalacoesCanvas' : 'cadCanvas');
+        if (!cv) return;
+        const ctx = cv.getContext('2d');
+        ctx.save();
+        ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2.5; ctx.setLineDash([5, 4]);
+        if (o.tipo === 'escada') { const es = state.escadas.find(x => x.id === o.id); if (es) { const r = retEscada(es); ctx.strokeRect(r.x - 4, r.y - 4, r.w + 8, r.h + 8); } }
+        else if (o.tipo === 'linha') { const l = state.linhasMaoLivre[o.idx]; if (Array.isArray(l)) { ctx.lineWidth = 7; ctx.globalAlpha = .45; ctx.setLineDash([]); ctx.beginPath(); l.forEach((pt, i) => i ? ctx.lineTo(pt.x, pt.y) : ctx.moveTo(pt.x, pt.y)); ctx.stroke(); } }
+        else if (o.tipo === 'texto') { const t = state.linhasMaoLivre[o.idx]; if (t) { const s = t.tamanho || 14; ctx.strokeRect(t.x - 4, t.y - s - 4, t.texto.length * s * 0.6 + 8, s + 10); } }
+        else if (o.tipo === 'ponto') { const pt = state.pontosEletricos.find(p => String(p.id) === String(o.id)); if (pt) { ctx.beginPath(); ctx.arc(pt.x, pt.y, 16, 0, Math.PI * 2); ctx.stroke(); } }
+        else if (o.tipo === 'waypoint') { const w = (state.eletrodutoWaypoints[o.circNum] || [])[o.index]; if (w) { ctx.beginPath(); ctx.arc(w.x, w.y, 14, 0, Math.PI * 2); ctx.stroke(); } }
+        else if (o.tipo === 'prumada') { ctx.beginPath(); ctx.arc(state.prumadaPos.x, state.prumadaPos.y, 18, 0, Math.PI * 2); ctx.stroke(); }
+        ctx.restore();
+    }
+    function atualizarBarra() {
+        const bar = document.getElementById('barraSelecaoV2');
+        if (!bar) return;
+        let o = state.selecaoExtra;
+        // seleção de outro tipo (cômodo, porta, janela) tem prioridade
+        if (o && (state.comodoEmEdicaoId || state.aberturaSelecionadaId || state.transicaoSelecionadaKey)) { state.selecaoExtra = o = null; }
+        // objeto sumiu (desfazer, outro andar...)
+        if (o && o.tipo === 'escada' && !(state.escadas || []).some(x => x.id === o.id)) state.selecaoExtra = o = null;
+        if (o && (o.tipo === 'linha' || o.tipo === 'texto') && !(state.linhasMaoLivre || [])[o.idx]) state.selecaoExtra = o = null;
+        if (o && o.tipo === 'ponto' && !(state.pontosEletricos || []).some(p => String(p.id) === String(o.id))) state.selecaoExtra = o = null;
+        const aba = state.abaAtiva || 'planta';
+        const mostrar = !!o && (aba === 'planta' || aba === 'instalacoes');
+        bar.style.display = mostrar ? 'flex' : 'none';
+        if (!mostrar) return;
+        let nome = NOMES[o.tipo];
+        if (o.tipo === 'ponto') { const pt = state.pontosEletricos.find(p => String(p.id) === String(o.id)); if (pt) nome = `🔌 ${pt.tipo} ${pt.nome || ''}`; }
+        document.getElementById('lblBarraSelecao').textContent = nome;
+        const ed = document.getElementById('btnSelEditar');
+        const rotulo = { ponto: '✏️ Editar', texto: '✏️ Editar', escada: '⟳ Girar' }[o.tipo];
+        ed.style.display = rotulo ? '' : 'none';
+        if (rotulo) ed.textContent = rotulo;
+        ['barraComodoV2', 'barraAberturaV2'].forEach(id => { const b = document.getElementById(id); if (b) b.style.display = 'none'; });
+    }
+    ['desenharCAD', 'desenharInstalacoes'].forEach(n => {
+        const orig = window[n];
+        window[n] = function () { const r = orig.apply(this, arguments); try { if ((n === 'desenharCAD') === (state.abaAtiva !== 'instalacoes')) destacar(); atualizarBarra(); } catch (err) {} return r; };
+    });
+
+    ['cadCanvas', 'instalacoesCanvas'].forEach(id => {
+        const cv = document.getElementById(id);
+        if (!cv) return;
+        cv.addEventListener('mousedown', aoPressionar, true);
+        cv.addEventListener('mousemove', aoMover, true);
+        cv.addEventListener('mouseup', aoSoltar, true);
+    });
+    document.addEventListener('keydown', (ev) => {
+        const tag = (ev.target.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+        if (!state.selecaoExtra) return;
+        if (ev.key === 'Delete' || ev.key === 'Backspace') { ev.preventDefault(); ev.stopImmediatePropagation(); acaoSelecao('excluir'); }
+        else if (ev.key === 'Escape') acaoSelecao('fechar');
+    }, true);
 })();
 </script>
 
